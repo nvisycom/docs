@@ -1,0 +1,594 @@
+---
+title: "Examples"
+description: "Code examples for common use cases with the TypeScript SDK"
+---
+
+## Basic Redaction
+
+Simple document redaction:
+
+```typescript
+import { NvisyClient } from '@nvisy/sdk';
+
+const nvisy = new NvisyClient({
+  apiKey: process.env.NVISY_API_KEY
+});
+
+const result = await nvisy.documents.redact({
+  file: './sensitive-document.pdf',
+  detectionTypes: ['pii', 'phi', 'financial']
+});
+
+console.log(`Redacted ${result.detections.length} items`);
+await result.downloadRedacted('./redacted.pdf');
+```
+
+## Custom Detection Patterns
+
+Define organization-specific patterns:
+
+```typescript
+const result = await nvisy.documents.redact({
+  file: './employee-records.pdf',
+  detectionTypes: ['custom'],
+  customPatterns: [
+    {
+      name: 'employee_id',
+      pattern: /EMP-\d{6}/g,
+      description: 'Employee ID: EMP-######'
+    },
+    {
+      name: 'project_code',
+      pattern: /PRJ-[A-Z]{3}-\d{4}/g,
+      description: 'Project code: PRJ-XXX-####'
+    },
+    {
+      name: 'internal_phone',
+      pattern: /x\d{4}/gi,
+      description: 'Extension numbers'
+    }
+  ]
+});
+```
+
+## Batch Processing
+
+Process multiple documents:
+
+```typescript
+const files = [
+  './doc1.pdf',
+  './doc2.docx',
+  './doc3.xlsx'
+];
+
+// Option 1: Using Promise.all
+const results = await Promise.all(
+  files.map(file => 
+    nvisy.documents.redact({
+      file,
+      detectionTypes: ['pii']
+    })
+  )
+);
+
+// Option 2: Using batch API
+const batchResult = await nvisy.documents.batchRedact({
+  files: files,
+  detectionTypes: ['pii', 'phi'],
+  parallel: true,
+  maxConcurrent: 5
+});
+
+batchResult.results.forEach((result, i) => {
+  if (result.status === 'completed') {
+    console.log(`✓ ${files[i]}`);
+  } else {
+    console.log(`✗ ${files[i]}: ${result.error}`);
+  }
+});
+```
+
+## Streaming Large Files
+
+Handle large files efficiently:
+
+```typescript
+import { createReadStream } from 'fs';
+
+const stream = createReadStream('./large-document.pdf');
+
+const result = await nvisy.documents.redact({
+  file: stream,
+  detectionTypes: ['pii', 'phi']
+});
+```
+
+## Browser File Upload
+
+Handle file uploads in web applications:
+
+```typescript
+// React example
+function FileUploader() {
+  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const nvisy = new NvisyClient({
+      apiKey: process.env.REACT_APP_NVISY_API_KEY
+    });
+
+    const result = await nvisy.documents.redact({
+      file: file,
+      detectionTypes: ['pii', 'phi']
+    });
+
+    // Download redacted file
+    const blob = await result.getRedactedBlob();
+    const url = URL.createObjectURL(blob);
+    
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `redacted-${file.name}`;
+    a.click();
+  };
+
+  return <input type="file" onChange={handleUpload} accept=".pdf" />;
+}
+```
+
+## Webhook Integration
+
+Set up webhooks for async processing:
+
+```typescript
+// Create webhook
+const webhook = await nvisy.webhooks.create({
+  url: 'https://your-app.com/webhooks/nvisy',
+  events: ['redaction.completed', 'redaction.failed'],
+  secret: 'your_webhook_secret'
+});
+
+// Express.js webhook handler
+import express from 'express';
+import { verifyWebhookSignature } from '@nvisy/sdk';
+
+const app = express();
+
+app.post('/webhooks/nvisy', express.raw({ type: 'application/json' }), (req, res) => {
+  const signature = req.headers['x-nvisy-signature'] as string;
+  
+  const isValid = verifyWebhookSignature(
+    req.body,
+    signature,
+    webhook.secret
+  );
+  
+  if (!isValid) {
+    return res.status(401).send('Invalid signature');
+  }
+  
+  const event = JSON.parse(req.body.toString());
+  
+  if (event.type === 'redaction.completed') {
+    console.log('Redaction completed:', event.data.document_id);
+    // Process completed redaction
+  }
+  
+  res.status(200).send('OK');
+});
+```
+
+## Advanced Configuration
+
+Customize detection behavior:
+
+```typescript
+const result = await nvisy.documents.redact({
+  file: './document.pdf',
+  detectionTypes: ['pii', 'phi'],
+  confidenceThreshold: 0.9,
+  preserveFormatting: true,
+  redactionStyle: 'blur',
+  metadata: {
+    department: 'legal',
+    case_number: 'CASE-2024-001'
+  }
+});
+
+// Review detections before finalizing
+result.detections.forEach(detection => {
+  console.log(`${detection.type}: ${detection.confidence.toFixed(2)}`);
+});
+```
+
+## Error Handling
+
+Comprehensive error handling:
+
+```typescript
+import { 
+  NvisyError, 
+  AuthenticationError, 
+  RateLimitError,
+  ValidationError,
+  NotFoundError
+} from '@nvisy/sdk';
+
+async function redactWithRetry(file: string, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const result = await nvisy.documents.redact({
+        file,
+        detectionTypes: ['pii']
+      });
+      return result;
+      
+    } catch (error) {
+      if (error instanceof AuthenticationError) {
+        throw new Error('Invalid API key - cannot retry');
+      }
+      
+      if (error instanceof RateLimitError) {
+        const delay = error.retryAfter * 1000;
+        console.log(`Rate limited, waiting ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      if (error instanceof ValidationError) {
+        console.error('Validation error:', error.message);
+        throw error;
+      }
+      
+      if (i === maxRetries - 1) {
+        throw error;
+      }
+      
+      // Exponential backoff
+      await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
+    }
+  }
+}
+```
+
+## Testing
+
+Mock the SDK for testing:
+
+```typescript
+import { jest } from '@jest/globals';
+import { NvisyClient } from '@nvisy/sdk';
+
+// Mock the client
+jest.mock('@nvisy/sdk');
+
+describe('Document Redaction', () => {
+  it('should redact a document', async () => {
+    const mockRedact = jest.fn().mockResolvedValue({
+      documentId: 'doc_123',
+      status: 'completed',
+      detections: [
+        { type: 'pii', confidence: 0.95 }
+      ]
+    });
+
+    (NvisyClient as jest.Mock).mockImplementation(() => ({
+      documents: {
+        redact: mockRedact
+      }
+    }));
+
+    const nvisy = new NvisyClient({ apiKey: 'test-key' });
+    const result = await nvisy.documents.redact({
+      file: './test.pdf',
+      detectionTypes: ['pii']
+    });
+
+    expect(result.status).toBe('completed');
+    expect(mockRedact).toHaveBeenCalledWith({
+      file: './test.pdf',
+      detectionTypes: ['pii']
+    });
+  });
+});
+```
+
+## TypeScript Types
+
+Leverage full type safety:
+
+```typescript
+import type {
+  NvisyClient,
+  RedactionResult,
+  Detection,
+  DetectionType,
+  CustomPattern,
+  RedactionOptions
+} from '@nvisy/sdk';
+
+// Type-safe configuration
+const options: RedactionOptions = {
+  file: './document.pdf',
+  detectionTypes: ['pii', 'phi'],
+  confidenceThreshold: 0.85
+};
+
+// Type-safe result handling
+const result: RedactionResult = await nvisy.documents.redact(options);
+
+result.detections.forEach((detection: Detection) => {
+  // Full autocomplete and type checking
+  console.log(detection.type, detection.confidence);
+});
+```
+
+## Next.js API Route
+
+Server-side redaction in Next.js:
+
+```typescript
+// pages/api/redact.ts
+import { NvisyClient } from '@nvisy/sdk';
+import { NextApiRequest, NextApiResponse } from 'next';
+import formidable from 'formidable';
+
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
+const nvisy = new NvisyClient({
+  apiKey: process.env.NVISY_API_KEY!
+});
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const form = formidable();
+  const [fields, files] = await form.parse(req);
+  
+  const file = files.file?.[0];
+  if (!file) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+
+  try {
+    const result = await nvisy.documents.redact({
+      file: file.filepath,
+      detectionTypes: ['pii', 'phi', 'financial']
+    });
+
+    res.status(200).json({
+      documentId: result.documentId,
+      detections: result.detections.length,
+      downloadUrl: result.getRedactedUrl()
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Redaction failed' });
+  }
+}
+```
+
+## Complete Workflow
+
+End-to-end example:
+
+```typescript
+import { NvisyClient } from '@nvisy/sdk';
+import { writeFile } from 'fs/promises';
+
+async function completeWorkflow() {
+  const nvisy = new NvisyClient({
+    apiKey: process.env.NVISY_API_KEY
+  });
+
+  try {
+    // 1. Upload and redact
+    console.log('Uploading document...');
+    const result = await nvisy.documents.redact({
+      file: './sensitive-data.pdf',
+      detectionTypes: ['pii', 'phi', 'financial'],
+      confidenceThreshold: 0.85
+    });
+
+    // 2. Review detections
+    console.log(`\nFound ${result.detections.length} sensitive items:`);
+    result.detections.forEach((detection, i) => {
+      console.log(
+        `${i + 1}. ${detection.type} ` +
+        `(confidence: ${(detection.confidence * 100).toFixed(1)}%)`
+      );
+    });
+
+    // 3. Download redacted file
+    console.log('\nDownloading redacted document...');
+    await result.downloadRedacted('./redacted-data.pdf');
+
+    // 4. Save audit trail
+    console.log('\nSaving audit trail...');
+    await writeFile(
+      './audit-trail.json',
+      JSON.stringify(result.auditTrail, null, 2)
+    );
+
+    // 5. Generate report
+    const report = {
+      documentId: result.documentId,
+      processedAt: new Date().toISOString(),
+      detectionsCount: result.detections.length,
+      detectionsByType: result.detections.reduce((acc, d) => {
+        acc[d.type] = (acc[d.type] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>)
+    };
+
+    console.log('\nRedaction Report:');
+    console.log(JSON.stringify(report, null, 2));
+
+    console.log('\n✓ Workflow complete!');
+  } catch (error) {
+    console.error('❌ Workflow failed:', error);
+    throw error;
+  }
+}
+
+completeWorkflow();
+```
+
+## Troubleshooting
+
+### Common Issues
+
+<AccordionGroup>
+  <Accordion title="Module not found: '@nvisy/sdk'">
+    **Cause**: Package not installed or wrong directory
+    
+    **Solution**:
+    ```bash
+    # Verify installation
+    npm list @nvisy/sdk
+    
+    # Reinstall if needed
+    npm install @nvisy/sdk
+    
+    # Check you're in the right directory
+    ls package.json
+    ```
+  </Accordion>
+  
+  <Accordion title="Authentication failed">
+    **Cause**: Invalid or missing API key
+    
+    **Solution**:
+    ```typescript
+    // Check API key is set
+    console.log('API Key:', process.env.NVISY_API_KEY ? 'Set' : 'Not set');
+    
+    // Verify .env file is loaded
+    import dotenv from 'dotenv';
+    dotenv.config();
+    ```
+  </Accordion>
+  
+  <Accordion title="Rate limit exceeded">
+    **Cause**: Too many requests
+    
+    **Solution**:
+    ```typescript
+    import { RateLimitError } from '@nvisy/sdk';
+    
+    try {
+      const result = await nvisy.documents.redact({...});
+    } catch (error) {
+      if (error instanceof RateLimitError) {
+        // Wait before retrying
+        await new Promise(r => setTimeout(r, error.retryAfter * 1000));
+        // Retry request
+      }
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="File upload fails">
+    **Cause**: File too large or invalid format
+    
+    **Solution**:
+    ```typescript
+    import fs from 'fs';
+    
+    // Check file size (max 100MB)
+    const stats = fs.statSync('./file.pdf');
+    if (stats.size > 100 * 1024 * 1024) {
+      console.error('File too large');
+    }
+    
+    // Verify file exists
+    if (!fs.existsSync('./file.pdf')) {
+      console.error('File not found');
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="TypeScript type errors">
+    **Cause**: Missing or outdated types
+    
+    **Solution**:
+    ```bash
+    # Update to latest version
+    npm update @nvisy/sdk
+    
+    # Verify TypeScript version (need 4.5+)
+    npx tsc --version
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Debugging
+
+Enable debug logging:
+
+```typescript
+const nvisy = new NvisyClient({
+  apiKey: process.env.NVISY_API_KEY,
+  logLevel: 'debug'  // Enable debug logs
+});
+```
+
+Check request details:
+
+```typescript
+nvisy.on('request', (config) => {
+  console.log('Request:', config);
+});
+
+nvisy.on('response', (response) => {
+  console.log('Response:', response);
+});
+```
+
+### Performance Tips
+
+1. **Use streaming for large files**:
+   ```typescript
+   import { createReadStream } from 'fs';
+   const stream = createReadStream('./large-file.pdf');
+   const result = await nvisy.documents.redact({ file: stream, ... });
+   ```
+
+2. **Enable parallel processing**:
+   ```typescript
+   const results = await Promise.all(
+     files.map(file => nvisy.documents.redact({ file, ... }))
+   );
+   ```
+
+3. **Reuse client instances**:
+   ```typescript
+   // Good: Reuse client
+   const nvisy = new NvisyClient({...});
+   
+   // Bad: Create new client each time
+   for (const file of files) {
+     const nvisy = new NvisyClient({...}); // ❌
+   }
+   ```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="book" href="/sdks/typescript/api-reference">
+    Complete API documentation
+  </Card>
+  <Card title="Python SDK" icon="python" href="/sdks/python/quickstart">
+    Try the Python SDK
+  </Card>
+</CardGroup>

@@ -1,0 +1,214 @@
+---
+title: "Quick Start"
+description: "Install and get started with the Python SDK in minutes"
+---
+
+<Note>
+  The Python SDK is currently in development and has not been published to PyPI yet. This documentation represents the planned API.
+</Note>
+
+## Installation
+
+Once published, install the Nvisy SDK from PyPI:
+
+<CodeGroup>
+
+```bash pip
+pip install nvisy
+```
+
+```bash poetry
+poetry add nvisy
+```
+
+```bash pipenv
+pipenv install nvisy
+```
+
+</CodeGroup>
+
+## Requirements
+
+- **Python** 3.8 or higher
+- **pip** or **poetry** for package management
+
+## Initialize the Client
+
+```python
+from nvisy import NvisyClient
+import os
+
+client = NvisyClient(
+    api_key=os.getenv('NVISY_API_KEY'),
+    environment='production',  # or 'staging'
+    base_url='https://api.nvisy.com'  # optional
+)
+```
+
+<Warning>
+  Keep your API key secure. Never commit it to version control. Use environment variables.
+</Warning>
+
+## Your First Redaction
+
+Redact a document in 3 lines of code:
+
+```python
+result = client.documents.redact(
+    file='./sensitive-document.pdf',
+    detection_types=['pii', 'phi', 'financial']
+)
+
+print(f"Found {len(result.detections)} sensitive items")
+result.download_redacted('./redacted.pdf')
+```
+
+## Constructor Parameters
+
+```python
+class NvisyClient:
+    def __init__(
+        self,
+        api_key: str,                    # Required
+        environment: str = 'production', # 'production' or 'staging'
+        base_url: Optional[str] = None,  # Custom API URL
+        timeout: int = 30,               # Request timeout in seconds
+        max_retries: int = 3             # Max retry attempts
+    )
+```
+
+## Basic Usage Patterns
+
+### Redact with Custom Confidence
+
+```python
+result = client.documents.redact(
+    file='./document.pdf',
+    detection_types=['pii'],
+    confidence_threshold=0.9  # Higher = fewer false positives
+)
+```
+
+### Redact with Custom Patterns
+
+```python
+from nvisy import CustomPattern
+
+result = client.documents.redact(
+    file='./document.pdf',
+    detection_types=['custom'],
+    custom_patterns=[
+        CustomPattern(
+            name='employee_id',
+            pattern=r'EMP-\d{6}',
+            description='Employee ID: EMP-######'
+        )
+    ]
+)
+```
+
+### Analyze Without Redacting
+
+```python
+analysis = client.detections.analyze(
+    file='./document.pdf',
+    detection_types=['pii', 'phi']
+)
+
+for detection in analysis.detections:
+    print(f"Found {detection.type} with {detection.confidence} confidence")
+```
+
+## Error Handling
+
+```python
+from nvisy.exceptions import (
+    NvisyError,
+    AuthenticationError,
+    RateLimitError,
+    ValidationError
+)
+
+try:
+    result = client.documents.redact(
+        file='./document.pdf',
+        detection_types=['pii']
+    )
+except AuthenticationError:
+    print("Invalid API key")
+except RateLimitError as e:
+    print(f"Rate limit exceeded. Retry after {e.retry_after}s")
+except ValidationError as e:
+    print(f"Invalid parameters: {e.message}")
+except NvisyError as e:
+    print(f"Nvisy error: {e.message}")
+```
+
+## Context Manager
+
+Use the client as a context manager:
+
+```python
+with NvisyClient(api_key=os.getenv('NVISY_API_KEY')) as client:
+    result = client.documents.redact(
+        file='./document.pdf',
+        detection_types=['pii']
+    )
+    result.download_redacted('./redacted.pdf')
+# Client automatically cleaned up
+```
+
+## Async Support
+
+Use async/await for better performance:
+
+```python
+import asyncio
+from nvisy import AsyncNvisyClient
+
+async def redact_documents():
+    async with AsyncNvisyClient(api_key=os.getenv('NVISY_API_KEY')) as client:
+        tasks = [
+            client.documents.redact(
+                file=f'./doc{i}.pdf',
+                detection_types=['pii']
+            )
+            for i in range(1, 6)
+        ]
+        
+        results = await asyncio.gather(*tasks)
+        
+        for i, result in enumerate(results, 1):
+            print(f"Document {i}: {len(result.detections)} detections")
+
+asyncio.run(redact_documents())
+```
+
+## Virtual Environment Setup
+
+We recommend using a virtual environment:
+
+```bash
+# Create virtual environment
+python -m venv venv
+
+# Activate (Linux/Mac)
+source venv/bin/activate
+
+# Activate (Windows)
+venv\Scripts\activate
+
+# Install Nvisy
+pip install nvisy
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="book" href="/sdks/python/api-reference">
+    View complete API documentation
+  </Card>
+  <Card title="Examples" icon="code" href="/sdks/python/examples">
+    Explore advanced examples
+  </Card>
+</CardGroup>

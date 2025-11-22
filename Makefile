@@ -12,8 +12,8 @@ install:
 	$(call print-make, "Mintlify CLI installed!")
 	mint version
 
-.PHONY: run
-run:
+.PHONY: dev
+dev:
 	$(call print-make, "Checking Mintlify CLI...")
 	mint version
 	$(call print-make, "Running Mintlify CLI...")

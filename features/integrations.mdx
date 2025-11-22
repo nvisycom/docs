@@ -1,0 +1,667 @@
+---
+title: "Integrations"
+description: "Integrate Nvisy with your existing tools and workflows"
+---
+
+Nvisy integrates seamlessly with popular platforms and tools to fit into your existing workflows.
+
+## Developer Tools
+
+<CardGroup cols={2}>
+  <Card title="GitHub Actions" icon="github">
+    Automate document redaction in CI/CD pipelines
+  </Card>
+  <Card title="GitLab CI" icon="gitlab">
+    Redact documents as part of your deployment process
+  </Card>
+  <Card title="Jenkins" icon="jenkins">
+    Integrate redaction into Jenkins pipelines
+  </Card>
+  <Card title="CircleCI" icon="circle">
+    Add redaction steps to CircleCI workflows
+  </Card>
+</CardGroup>
+
+### GitHub Actions
+
+Redact documents in your CI/CD pipeline:
+
+```yaml
+name: Redact Documents
+on:
+  push:
+    paths:
+      - 'documents/**'
+
+jobs:
+  redact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Redact Documents
+        uses: nvisy/redact-action@v1
+        with:
+          api-key: ${{ secrets.NVISY_API_KEY }}
+          files: 'documents/**/*.pdf'
+          detection-types: 'pii,phi'
+          
+      - name: Upload Redacted
+        uses: actions/upload-artifact@v3
+        with:
+          name: redacted-documents
+          path: redacted/
+```
+
+### GitLab CI
+
+```yaml
+redact_documents:
+  image: nvisy/cli:latest
+  stage: process
+  script:
+    - nvisy redact documents/ --output redacted/ --types pii,phi
+  artifacts:
+    paths:
+      - redacted/
+  only:
+    changes:
+      - documents/**
+```
+
+## Cloud Storage
+
+<CardGroup cols={3}>
+  <Card title="AWS S3" icon="aws">
+    Automatically redact documents uploaded to S3
+  </Card>
+  <Card title="Google Drive" icon="google">
+    Redact documents in Google Drive
+  </Card>
+  <Card title="Dropbox" icon="dropbox">
+    Monitor and redact Dropbox files
+  </Card>
+  <Card title="Azure Blob" icon="microsoft">
+    Redact documents in Azure storage
+  </Card>
+  <Card title="Box" icon="box">
+    Integrate with Box for document management
+  </Card>
+  <Card title="OneDrive" icon="microsoft">
+    Redact OneDrive documents
+  </Card>
+</CardGroup>
+
+### AWS S3 Integration
+
+Automatically redact documents uploaded to S3:
+
+```typescript
+// AWS Lambda function
+import { S3Event } from 'aws-lambda';
+import { S3 } from '@aws-sdk/client-s3';
+import { NvisyClient } from '@nvisy/sdk';
+
+const s3 = new S3();
+const nvisy = new NvisyClient({
+  apiKey: process.env.NVISY_API_KEY
+});
+
+export const handler = async (event: S3Event) => {
+  for (const record of event.Records) {
+    const bucket = record.s3.bucket.name;
+    const key = record.s3.object.key;
+    
+    // Download from S3
+    const object = await s3.getObject({ Bucket: bucket, Key: key });
+    
+    // Redact document
+    const result = await nvisy.documents.redact({
+      file: object.Body,
+      detectionTypes: ['pii', 'phi', 'financial']
+    });
+    
+    // Upload redacted version
+    const redactedKey = `redacted/${key}`;
+    await s3.putObject({
+      Bucket: bucket,
+      Key: redactedKey,
+      Body: await result.getRedactedBuffer()
+    });
+  }
+};
+```
+
+### Google Drive Integration
+
+Use Google Drive API with Nvisy:
+
+```typescript
+import { google } from 'googleapis';
+import { NvisyClient } from '@nvisy/sdk';
+
+const drive = google.drive('v3');
+const nvisy = new NvisyClient({
+  apiKey: process.env.NVISY_API_KEY
+});
+
+async function redactDriveDocument(fileId: string) {
+  // Download from Drive
+  const response = await drive.files.get(
+    { fileId, alt: 'media' },
+    { responseType: 'stream' }
+  );
+  
+  // Redact document
+  const result = await nvisy.documents.redact({
+    file: response.data,
+    detectionTypes: ['pii', 'phi']
+  });
+  
+  // Upload redacted version
+  await drive.files.create({
+    requestBody: {
+      name: 'Redacted Document',
+      parents: [folderId]
+    },
+    media: {
+      body: await result.getRedactedBuffer()
+    }
+  });
+}
+```
+
+## Messaging & Collaboration
+
+<CardGroup cols={2}>
+  <Card title="Slack" icon="slack">
+    Redact documents shared in Slack
+  </Card>
+  <Card title="Microsoft Teams" icon="microsoft">
+    Integrate with Teams workflows
+  </Card>
+  <Card title="Discord" icon="discord">
+    Redact documents in Discord channels
+  </Card>
+  <Card title="Email" icon="envelope">
+    Redact email attachments automatically
+  </Card>
+</CardGroup>
+
+### Slack Integration
+
+Create a Slack bot that redacts documents:
+
+```typescript
+import { App } from '@slack/bolt';
+import { NvisyClient } from '@nvisy/sdk';
+
+const app = new App({
+  token: process.env.SLACK_BOT_TOKEN,
+  signingSecret: process.env.SLACK_SIGNING_SECRET
+});
+
+const nvisy = new NvisyClient({
+  apiKey: process.env.NVISY_API_KEY
+});
+
+// Listen for file uploads
+app.event('file_shared', async ({ event, client }) => {
+  const fileInfo = await client.files.info({ file: event.file_id });
+  const file = fileInfo.file;
+  
+  // Download file
+  const response = await fetch(file.url_private_download, {
+    headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}` }
+  });
+  
+  // Redact document
+  const result = await nvisy.documents.redact({
+    file: Buffer.from(await response.arrayBuffer()),
+    detectionTypes: ['pii', 'phi']
+  });
+  
+  // Upload redacted version
+  await client.files.upload({
+    channels: event.channel_id,
+    file: await result.getRedactedBuffer(),
+    filename: `redacted_${file.name}`,
+    initial_comment: 'Redacted version uploaded'
+  });
+});
+
+await app.start(3000);
+```
+
+## Document Management Systems
+
+<CardGroup cols={2}>
+  <Card title="SharePoint" icon="microsoft">
+    Redact documents in SharePoint
+  </Card>
+  <Card title="Confluence" icon="confluence">
+    Integrate with Confluence pages
+  </Card>
+  <Card title="Notion" icon="notion">
+    Redact Notion exports
+  </Card>
+  <Card title="DocuSign" icon="file-signature">
+    Redact before sending for signature
+  </Card>
+</CardGroup>
+
+### SharePoint Integration
+
+```typescript
+import { Client } from '@microsoft/microsoft-graph-client';
+import { NvisyClient } from '@nvisy/sdk';
+
+const graphClient = Client.init({
+  authProvider: // Your auth provider
+});
+
+const nvisy = new NvisyClient({
+  apiKey: process.env.NVISY_API_KEY
+});
+
+async function redactSharePointDocument(driveId: string, itemId: string) {
+  // Download from SharePoint
+  const stream = await graphClient
+    .api(`/drives/${driveId}/items/${itemId}/content`)
+    .getStream();
+  
+  // Redact document
+  const result = await nvisy.documents.redact({
+    file: stream,
+    detectionTypes: ['pii', 'phi']
+  });
+  
+  // Upload redacted version
+  await graphClient
+    .api(`/drives/${driveId}/items/${itemId}/content`)
+    .put(await result.getRedactedBuffer());
+}
+```
+
+## CRM & Business Tools
+
+<CardGroup cols={3}>
+  <Card title="Salesforce" icon="salesforce">
+    Redact documents in Salesforce
+  </Card>
+  <Card title="HubSpot" icon="hubspot">
+    Integrate with HubSpot workflows
+  </Card>
+  <Card title="Zendesk" icon="ticket">
+    Redact support ticket attachments
+  </Card>
+  <Card title="Jira" icon="jira">
+    Redact Jira issue attachments
+  </Card>
+  <Card title="ServiceNow" icon="server">
+    Integrate with ServiceNow
+  </Card>
+  <Card title="Workday" icon="briefcase">
+    Redact HR documents
+  </Card>
+</CardGroup>
+
+### Salesforce Integration
+
+```typescript
+import jsforce from 'jsforce';
+import { NvisyClient } from '@nvisy/sdk';
+
+const conn = new jsforce.Connection({
+  loginUrl: 'https://login.salesforce.com'
+});
+
+const nvisy = new NvisyClient({
+  apiKey: process.env.NVISY_API_KEY
+});
+
+async function redactSalesforceAttachment(attachmentId: string) {
+  // Download attachment
+  const attachment = await conn.sobject('Attachment')
+    .retrieve(attachmentId);
+  const body = await conn.request(attachment.Body);
+  
+  // Redact document
+  const result = await nvisy.documents.redact({
+    file: Buffer.from(body, 'base64'),
+    detectionTypes: ['pii', 'financial']
+  });
+  
+  // Create redacted attachment
+  await conn.sobject('Attachment').create({
+    Name: `Redacted_${attachment.Name}`,
+    Body: (await result.getRedactedBuffer()).toString('base64'),
+    ParentId: attachment.ParentId
+  });
+}
+```
+
+## Workflow Automation
+
+<CardGroup cols={2}>
+  <Card title="Zapier" icon="bolt">
+    No-code integration with 5000+ apps
+  </Card>
+  <Card title="Make (Integromat)" icon="puzzle-piece">
+    Visual workflow automation
+  </Card>
+  <Card title="n8n" icon="workflow">
+    Self-hosted workflow automation
+  </Card>
+  <Card title="Apache Airflow" icon="wind">
+    Data pipeline orchestration
+  </Card>
+</CardGroup>
+
+### Zapier Integration
+
+Create a Zap that redacts documents:
+
+1. **Trigger:** New file in Google Drive
+2. **Action:** Redact with Nvisy
+3. **Action:** Save to Dropbox
+
+Or use webhooks:
+
+```typescript
+// Nvisy webhook → Zapier webhook
+const webhook = await nvisy.webhooks.create({
+  url: 'https://hooks.zapier.com/hooks/catch/xxxxx/yyyyy/',
+  events: ['redaction.completed']
+});
+```
+
+### n8n Workflow
+
+```json
+{
+  "nodes": [
+    {
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [250, 300]
+    },
+    {
+      "name": "Nvisy Redact",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "url": "https://api.nvisy.com/v1/documents/redact",
+        "method": "POST",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$env.NVISY_API_KEY}}"
+            }
+          ]
+        }
+      },
+      "position": [450, 300]
+    },
+    {
+      "name": "Save to S3",
+      "type": "n8n-nodes-base.aws",
+      "position": [650, 300]
+    }
+  ]
+}
+```
+
+## Monitoring & Logging
+
+<CardGroup cols={2}>
+  <Card title="Datadog" icon="chart-line">
+    Monitor Nvisy metrics in Datadog
+  </Card>
+  <Card title="New Relic" icon="chart-area">
+    Application performance monitoring
+  </Card>
+  <Card title="Prometheus" icon="database">
+    Metrics collection and alerting
+  </Card>
+  <Card title="ELK Stack" icon="magnifying-glass">
+    Centralized logging
+  </Card>
+</CardGroup>
+
+### Prometheus Integration
+
+Scrape Nvisy metrics:
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: 'nvisy'
+    static_configs:
+      - targets: ['nvisy:9090']
+    metrics_path: '/metrics'
+```
+
+### Datadog Integration
+
+Send metrics to Datadog:
+
+```typescript
+import { StatsD } from 'hot-shots';
+import { NvisyClient } from '@nvisy/sdk';
+
+const statsd = new StatsD({
+  host: 'localhost',
+  port: 8125,
+  prefix: 'nvisy.'
+});
+
+const nvisy = new NvisyClient({
+  apiKey: process.env.NVISY_API_KEY
+});
+
+async function redactWithMetrics(file: string) {
+  const startTime = Date.now();
+  
+  try {
+    const result = await nvisy.documents.redact({
+      file,
+      detectionTypes: ['pii']
+    });
+    
+    statsd.increment('redactions.success');
+    statsd.histogram('redactions.duration', Date.now() - startTime);
+    statsd.gauge('detections.count', result.detections.length);
+    
+    return result;
+  } catch (error) {
+    statsd.increment('redactions.error');
+    throw error;
+  }
+}
+```
+
+## Security & Compliance
+
+<CardGroup cols={2}>
+  <Card title="Okta" icon="shield-halved">
+    SSO and identity management
+  </Card>
+  <Card title="Auth0" icon="lock">
+    Authentication and authorization
+  </Card>
+  <Card title="Vault" icon="vault">
+    Secrets management
+  </Card>
+  <Card title="1Password" icon="key">
+    Password and secrets storage
+  </Card>
+</CardGroup>
+
+### HashiCorp Vault Integration
+
+Store API keys securely:
+
+```typescript
+import vault from 'node-vault';
+import { NvisyClient } from '@nvisy/sdk';
+
+const vaultClient = vault({
+  endpoint: 'http://vault:8200',
+  token: process.env.VAULT_TOKEN
+});
+
+async function getNvisyClient() {
+  const { data } = await vaultClient.read('secret/nvisy');
+  
+  return new NvisyClient({
+    apiKey: data.api_key
+  });
+}
+```
+
+## Custom Integrations
+
+### REST API
+
+Integrate with any system using the REST API:
+
+```bash
+curl -X POST https://api.nvisy.com/v1/documents/redact \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -F "file=@document.pdf" \
+  -F "detection_types=pii,phi"
+```
+
+### Webhooks
+
+Receive real-time notifications:
+
+```typescript
+app.post('/webhooks/nvisy', (req, res) => {
+  const event = req.body;
+  
+  switch (event.type) {
+    case 'redaction.completed':
+      // Handle completed redaction
+      processCompletedRedaction(event.data);
+      break;
+      
+    case 'redaction.failed':
+      // Handle failed redaction
+      handleFailedRedaction(event.data);
+      break;
+  }
+  
+  res.status(200).send('OK');
+});
+```
+
+### SDKs
+
+Use official SDKs for seamless integration:
+
+<CardGroup cols={2}>
+  <Card title="TypeScript SDK" icon="js" href="/sdks/typescript/installation">
+    Node.js and browser support
+  </Card>
+  <Card title="Python SDK" icon="python" href="/sdks/python/installation">
+    Server-side Python applications
+  </Card>
+</CardGroup>
+
+## Enterprise Integrations
+
+For enterprise customers, we offer dedicated support for:
+
+- **Custom connectors** for proprietary systems
+- **On-premises integrations** with existing tools
+- **API gateway** integration
+- **Identity provider** (IdP) integration
+- **Data loss prevention** (DLP) systems
+- **SIEM** integration
+
+<Card title="Contact Sales" icon="phone" href="mailto:sales@nvisy.com">
+  Discuss enterprise integration requirements
+</Card>
+
+## Integration Examples
+
+### Complete Workflow: S3 → Redact → Notify
+
+```typescript
+import { S3Event } from 'aws-lambda';
+import { S3 } from '@aws-sdk/client-s3';
+import { NvisyClient } from '@nvisy/sdk';
+import { SNS } from '@aws-sdk/client-sns';
+
+const s3 = new S3();
+const sns = new SNS();
+const nvisy = new NvisyClient({
+  apiKey: process.env.NVISY_API_KEY
+});
+
+export const handler = async (event: S3Event) => {
+  for (const record of event.Records) {
+    const bucket = record.s3.bucket.name;
+    const key = record.s3.object.key;
+    
+    try {
+      // 1. Download from S3
+      const object = await s3.getObject({ Bucket: bucket, Key: key });
+      
+      // 2. Redact document
+      const result = await nvisy.documents.redact({
+        file: object.Body,
+        detectionTypes: ['pii', 'phi', 'financial']
+      });
+      
+      // 3. Upload redacted version
+      const redactedKey = `redacted/${key}`;
+      await s3.putObject({
+        Bucket: bucket,
+        Key: redactedKey,
+        Body: await result.getRedactedBuffer()
+      });
+      
+      // 4. Send notification
+      await sns.publish({
+        TopicArn: process.env.SNS_TOPIC_ARN,
+        Subject: 'Document Redacted',
+        Message: JSON.stringify({
+          originalFile: key,
+          redactedFile: redactedKey,
+          detectionsCount: result.detections.length
+        })
+      });
+      
+    } catch (error) {
+      console.error('Redaction failed:', error);
+      
+      // Send error notification
+      await sns.publish({
+        TopicArn: process.env.SNS_TOPIC_ARN,
+        Subject: 'Redaction Failed',
+        Message: `Failed to redact ${key}: ${error.message}`
+      });
+    }
+  }
+};
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Explore API endpoints
+  </Card>
+  <Card title="TypeScript SDK" icon="js" href="/sdks/typescript/installation">
+    Use the TypeScript SDK
+  </Card>
+  <Card title="Webhooks" icon="webhook" href="/api-reference/introduction">
+    Set up webhooks
+  </Card>
+  <Card title="Examples" icon="book" href="/sdks/typescript/examples">
+    View integration examples
+  </Card>
+</CardGroup>

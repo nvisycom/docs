@@ -1,0 +1,203 @@
+---
+title: "Redaction Workflow"
+description: "Understand the complete document redaction workflow in Nvisy"
+---
+
+## Overview
+
+Nvisy's redaction workflow is designed to be simple, secure, and compliant. The four-step process ensures sensitive information is accurately identified and redacted while maintaining complete audit trails.
+
+## Workflow Steps
+
+<Steps>
+  <Step title="Upload">
+    Upload documents in 50+ supported formats through API, SDK, or web interface
+  </Step>
+  <Step title="AI Analysis">
+    Advanced AI scans for PII, PHI, financial data, and custom patterns
+  </Step>
+  <Step title="Review & Approve">
+    Preview detected items with confidence scores before finalizing
+  </Step>
+  <Step title="Download">
+    Receive redacted documents with complete audit trails
+  </Step>
+</Steps>
+
+## Detailed Process
+
+### 1. Document Upload
+
+Upload documents through multiple channels:
+
+- **REST API** - Direct HTTP uploads
+- **SDKs** - JavaScript/TypeScript or Python
+- **Web Interface** - Browser-based uploads
+- **Batch Processing** - Multiple documents at once
+
+### 2. AI-Powered Detection
+
+Our AI engine analyzes documents for sensitive information:
+
+- **PII Detection** - Names, addresses, SSN, phone numbers, email addresses
+- **PHI Detection** - Medical record numbers, diagnoses, prescriptions, patient data
+- **Financial Detection** - Credit card numbers, bank accounts, tax IDs
+- **Custom Patterns** - Organization-specific sensitive data
+
+Each detection includes:
+- **Confidence score** (0-1) indicating certainty
+- **Location** (page, coordinates) in the document
+- **Type** classification
+- **Context** surrounding text
+
+### 3. Review Process
+
+Before finalization, review detected items:
+
+```json
+{
+  "detections": [
+    {
+      "id": "det_123",
+      "type": "ssn",
+      "confidence": 0.95,
+      "text": "XXX-XX-XXXX",
+      "page": 1,
+      "coordinates": {"x": 100, "y": 200}
+    }
+  ]
+}
+```
+
+Options during review:
+- **Approve** - Confirm redaction
+- **Reject** - Keep original text
+- **Adjust** - Modify redaction area
+- **Set threshold** - Filter by confidence score
+
+### 4. Redaction Styles
+
+Choose how sensitive information is redacted:
+
+<CardGroup cols={3}>
+  <Card title="Black Box" icon="square">
+    Replace with solid black rectangles (default)
+  </Card>
+  <Card title="Blur" icon="eye-slash">
+    Apply blur effect over sensitive areas
+  </Card>
+  <Card title="Pixelate" icon="grid">
+    Pixelate sensitive information
+  </Card>
+</CardGroup>
+
+### 5. Download & Audit
+
+Receive redacted documents with:
+- **Preserved formatting** - Original document structure maintained
+- **Audit trail** - Complete record of all actions
+- **Metadata** - Processing details and timestamps
+- **Compliance reports** - For regulatory requirements
+
+## Batch Processing
+
+Process multiple documents efficiently:
+
+```typescript
+const results = await nvisy.documents.batchRedact({
+  files: ['doc1.pdf', 'doc2.docx', 'doc3.xlsx'],
+  detectionTypes: ['pii', 'phi'],
+  parallel: true,
+  maxConcurrent: 5
+});
+```
+
+Benefits:
+- **Parallel processing** - Handle multiple documents simultaneously
+- **Progress tracking** - Monitor batch status in real-time
+- **Error handling** - Individual document failures don't stop the batch
+- **Consolidated reporting** - Single report for all documents
+
+## Audit Trails
+
+Every redaction includes a complete audit trail:
+
+```json
+{
+  "audit_trail": [
+    {
+      "timestamp": "2024-01-15T10:30:00Z",
+      "action": "document_uploaded",
+      "user": "user@example.com"
+    },
+    {
+      "timestamp": "2024-01-15T10:30:15Z",
+      "action": "analysis_completed",
+      "detections_found": 42
+    },
+    {
+      "timestamp": "2024-01-15T10:32:00Z",
+      "action": "redaction_approved",
+      "user": "user@example.com"
+    },
+    {
+      "timestamp": "2024-01-15T10:32:05Z",
+      "action": "redacted_document_downloaded",
+      "user": "user@example.com"
+    }
+  ]
+}
+```
+
+## Performance
+
+<CardGroup cols={3}>
+  <Card title="99.9% Accuracy" icon="bullseye">
+    Industry-leading detection accuracy across all data types
+  </Card>
+  <Card title="< 60 Seconds" icon="clock">
+    Average processing time for standard documents
+  </Card>
+  <Card title="50+ Formats" icon="file">
+    Comprehensive file format support
+  </Card>
+</CardGroup>
+
+## Best Practices
+
+### Setting Confidence Thresholds
+
+- **High precision (0.9-1.0)** - Fewer false positives, may miss some items
+- **Balanced (0.8-0.9)** - Recommended for most use cases
+- **High recall (0.6-0.8)** - Catch more items, may include false positives
+
+### Review Process
+
+1. **Always review** high-value or legally sensitive documents
+2. **Spot check** batch processed documents
+3. **Adjust thresholds** based on your needs
+4. **Use custom patterns** for organization-specific data
+
+### Compliance
+
+- **Maintain audit trails** for regulatory requirements
+- **Set retention policies** for processed documents
+- **Use webhooks** for automated compliance workflows
+- **Export reports** for audit purposes
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="AI Detection" icon="brain" href="/features/ai-detection">
+    Learn about detection algorithms and accuracy
+  </Card>
+  <Card title="Supported Formats" icon="file" href="/features/supported-formats">
+    View all supported file formats
+  </Card>
+  <Card title="Audit Trails" icon="shield-check" href="/features/audit-trails">
+    Understand audit trail capabilities
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Integrate redaction into your workflow
+  </Card>
+</CardGroup>

@@ -1,0 +1,337 @@
+---
+title: "API Reference"
+description: "Complete TypeScript SDK API reference"
+---
+
+## NvisyClient
+
+The main client class for interacting with the Nvisy API.
+
+### Constructor
+
+```typescript
+new NvisyClient(options: NvisyClientOptions)
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `apiKey` | `string` | Yes | - | Your API key |
+| `environment` | `'production' \| 'staging'` | No | `'production'` | Environment |
+| `baseUrl` | `string` | No | `https://api.nvisy.com` | Custom API base URL |
+| `timeout` | `number` | No | `30000` | Request timeout in ms |
+| `maxRetries` | `number` | No | `3` | Max retry attempts |
+
+## Documents API
+
+### `documents.redact()`
+
+Redact sensitive information from a document.
+
+```typescript
+documents.redact(options: RedactOptions): Promise<RedactionResult>
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `file` | `string \| File \| Buffer \| ReadStream` | Yes | - | File to redact |
+| `detectionTypes` | `DetectionType[]` | Yes | - | Types to detect |
+| `confidenceThreshold` | `number` | No | `0.8` | Minimum confidence (0-1) |
+| `customPatterns` | `CustomPattern[]` | No | - | Custom regex patterns |
+| `preserveFormatting` | `boolean` | No | `true` | Preserve formatting |
+| `redactionStyle` | `RedactionStyle` | No | `'black-box'` | Redaction style |
+
+**Returns:** `Promise<RedactionResult>`
+
+```typescript
+interface RedactionResult {
+  documentId: string;
+  status: 'completed' | 'processing' | 'failed';
+  detections: Detection[];
+  auditTrail: AuditEntry[];
+  downloadRedacted: (path?: string) => Promise<void>;
+  getRedactedBuffer: () => Promise<Buffer>;
+  getRedactedUrl: () => string;
+}
+```
+
+**Example:**
+
+```typescript
+const result = await nvisy.documents.redact({
+  file: './document.pdf',
+  detectionTypes: ['pii', 'phi'],
+  confidenceThreshold: 0.85
+});
+```
+
+### `documents.upload()`
+
+Upload a document without immediate redaction.
+
+```typescript
+documents.upload(options: UploadOptions): Promise<Document>
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | `string \| File \| Buffer \| ReadStream` | Yes | File to upload |
+| `metadata` | `Record<string, any>` | No | Custom metadata |
+
+**Example:**
+
+```typescript
+const document = await nvisy.documents.upload({
+  file: './document.pdf',
+  metadata: {
+    department: 'hr',
+    tags: ['confidential']
+  }
+});
+```
+
+### `documents.get()`
+
+Retrieve document information.
+
+```typescript
+documents.get(documentId: string): Promise<Document>
+```
+
+**Example:**
+
+```typescript
+const document = await nvisy.documents.get('doc_abc123');
+console.log(document.status);
+```
+
+### `documents.list()`
+
+List all documents.
+
+```typescript
+documents.list(options?: ListOptions): Promise<DocumentList>
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | `number` | `50` | Number of results |
+| `offset` | `number` | `0` | Offset for pagination |
+| `status` | `DocumentStatus` | - | Filter by status |
+| `sortBy` | `string` | `'created_at'` | Sort field |
+| `sortOrder` | `'asc' \| 'desc'` | `'desc'` | Sort order |
+
+**Example:**
+
+```typescript
+const documents = await nvisy.documents.list({
+  limit: 100,
+  status: 'completed'
+});
+```
+
+### `documents.delete()`
+
+Delete a document.
+
+```typescript
+documents.delete(documentId: string): Promise<void>
+```
+
+**Example:**
+
+```typescript
+await nvisy.documents.delete('doc_abc123');
+```
+
+### `documents.batchRedact()`
+
+Redact multiple documents in parallel.
+
+```typescript
+documents.batchRedact(options: BatchRedactOptions): Promise<BatchResult>
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `files` | `Array<string \| File>` | Yes | Files to redact |
+| `detectionTypes` | `DetectionType[]` | Yes | Types to detect |
+| `parallel` | `boolean` | No | Process in parallel |
+| `maxConcurrent` | `number` | No | Max concurrent jobs |
+
+**Example:**
+
+```typescript
+const results = await nvisy.documents.batchRedact({
+  files: ['doc1.pdf', 'doc2.pdf', 'doc3.pdf'],
+  detectionTypes: ['pii'],
+  parallel: true,
+  maxConcurrent: 5
+});
+```
+
+## Detections API
+
+### `detections.analyze()`
+
+Analyze without redacting.
+
+```typescript
+detections.analyze(options: AnalyzeOptions): Promise<AnalysisResult>
+```
+
+**Example:**
+
+```typescript
+const analysis = await nvisy.detections.analyze({
+  file: './document.pdf',
+  detectionTypes: ['pii', 'phi']
+});
+```
+
+## Webhooks API
+
+### `webhooks.create()`
+
+Create a webhook.
+
+```typescript
+webhooks.create(options: WebhookOptions): Promise<Webhook>
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `url` | `string` | Yes | Webhook endpoint URL |
+| `events` | `WebhookEvent[]` | Yes | Events to subscribe |
+| `secret` | `string` | No | Secret for verification |
+
+**Example:**
+
+```typescript
+const webhook = await nvisy.webhooks.create({
+  url: 'https://your-app.com/webhooks/nvisy',
+  events: ['redaction.completed', 'redaction.failed'],
+  secret: 'webhook_secret'
+});
+```
+
+### `webhooks.list()`
+
+List webhooks.
+
+```typescript
+webhooks.list(): Promise<Webhook[]>
+```
+
+### `webhooks.delete()`
+
+Delete a webhook.
+
+```typescript
+webhooks.delete(webhookId: string): Promise<void>
+```
+
+## Types
+
+### DetectionType
+
+```typescript
+type DetectionType = 'pii' | 'phi' | 'financial' | 'custom';
+```
+
+### RedactionStyle
+
+```typescript
+type RedactionStyle = 'black-box' | 'blur' | 'pixelate';
+```
+
+### CustomPattern
+
+```typescript
+interface CustomPattern {
+  name: string;
+  pattern: RegExp;
+  description?: string;
+}
+```
+
+### Detection
+
+```typescript
+interface Detection {
+  id: string;
+  type: DetectionType;
+  confidence: number;
+  page: number;
+  text: string;
+  coordinates?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+}
+```
+
+### AuditEntry
+
+```typescript
+interface AuditEntry {
+  id: string;
+  timestamp: string;
+  action: string;
+  user?: {
+    id: string;
+    email: string;
+  };
+  details?: Record<string, any>;
+}
+```
+
+## Utility Functions
+
+### `verifyWebhookSignature()`
+
+Verify webhook signatures.
+
+```typescript
+function verifyWebhookSignature(
+  payload: any,
+  signature: string,
+  secret: string
+): boolean
+```
+
+**Example:**
+
+```typescript
+import { verifyWebhookSignature } from '@nvisy/sdk';
+
+const isValid = verifyWebhookSignature(
+  req.body,
+  req.headers['x-nvisy-signature'],
+  webhookSecret
+);
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Examples" icon="code" href="/sdks/typescript/examples">
+    View code examples
+  </Card>
+  <Card title="REST API" icon="book" href="/api-reference/introduction">
+    REST API documentation
+  </Card>
+</CardGroup>

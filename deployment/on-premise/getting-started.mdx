@@ -1,0 +1,448 @@
+---
+title: "Getting Started"
+description: "Configure and start using Nvisy on-premises"
+---
+
+## Quick Start
+
+Get Nvisy running in 5 minutes:
+
+<Steps>
+  <Step title="Verify Requirements">
+    Ensure your system meets the [requirements](/deployment/on-premise/requirements)
+  </Step>
+  <Step title="Install Nvisy">
+    Follow the [installation guide](/deployment/on-premise/installation)
+  </Step>
+  <Step title="Configure Settings">
+    Set up basic configuration
+  </Step>
+  <Step title="Start Services">
+    Launch Nvisy services
+  </Step>
+  <Step title="Verify Installation">
+    Test that everything is working
+  </Step>
+</Steps>
+
+## Basic Configuration
+
+### Environment Variables
+
+Create a `.env` file with your configuration:
+
+```bash
+# License
+NVISY_LICENSE_KEY=your_license_key_here
+
+# Server
+NVISY_SERVER_HOST=0.0.0.0
+NVISY_SERVER_PORT=8080
+NVISY_LOG_LEVEL=info
+
+# Database
+NVISY_DB_URL=postgresql://nvisy:password@postgres:5432/nvisy
+
+# Redis
+NVISY_REDIS_URL=redis://redis:6379
+
+# Storage
+NVISY_STORAGE_TYPE=local
+NVISY_STORAGE_PATH=/var/lib/nvisy/data
+
+# Security
+NVISY_TLS_ENABLED=false  # Set to true for production
+```
+
+### Configuration File
+
+Alternatively, use `config.yaml`:
+
+```yaml
+server:
+  host: 0.0.0.0
+  port: 8080
+
+license:
+  key: your_license_key_here
+
+database:
+  url: postgresql://nvisy:password@postgres:5432/nvisy
+
+redis:
+  url: redis://redis:6379
+
+storage:
+  type: local
+  path: /var/lib/nvisy/data
+
+ai:
+  gpu_enabled: false
+  max_concurrent_jobs: 10
+```
+
+## Starting Services
+
+### Docker Compose
+
+Start all services:
+
+```bash
+# Start in foreground
+docker-compose up
+
+# Start in background
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Check status
+docker-compose ps
+```
+
+### Kubernetes
+
+Deploy with Helm:
+
+```bash
+# Install
+helm install nvisy nvisy/nvisy \
+  --namespace nvisy \
+  --create-namespace \
+  --set license.key=your_license_key
+
+# Check status
+kubectl get pods -n nvisy
+
+# View logs
+kubectl logs -f -n nvisy -l app=nvisy
+```
+
+### Systemd
+
+Start the service:
+
+```bash
+# Start service
+sudo systemctl start nvisy
+
+# Enable on boot
+sudo systemctl enable nvisy
+
+# Check status
+sudo systemctl status nvisy
+
+# View logs
+sudo journalctl -u nvisy -f
+```
+
+## Verification
+
+### Health Check
+
+Verify Nvisy is running:
+
+```bash
+curl http://localhost:8080/health
+```
+
+Expected response:
+
+```json
+{
+  "status": "healthy",
+  "version": "1.0.0",
+  "checks": {
+    "database": "ok",
+    "redis": "ok",
+    "storage": "ok",
+    "ai_models": "ok"
+  }
+}
+```
+
+### Test Redaction
+
+Test with a sample document:
+
+```bash
+curl -X POST http://localhost:8080/v1/documents/redact \
+  -F "file=@test-document.pdf" \
+  -F "detection_types=pii" \
+  -o redacted.pdf
+```
+
+## Creating API Keys
+
+Generate API keys for your applications:
+
+```bash
+# Create an API key
+docker-compose exec nvisy nvisy admin create-api-key \
+  --name "my-application" \
+  --permissions "redact,read"
+
+# List all keys
+docker-compose exec nvisy nvisy admin list-api-keys
+
+# Revoke a key
+docker-compose exec nvisy nvisy admin revoke-api-key --key-id KEY_ID
+```
+
+## First Redaction
+
+### Using cURL
+
+```bash
+# Upload and redact
+curl -X POST http://localhost:8080/v1/documents/redact \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -F "file=@document.pdf" \
+  -F "detection_types=pii,phi,financial" \
+  -F "confidence_threshold=0.8" \
+  -o redacted-document.pdf
+```
+
+### Using TypeScript SDK
+
+```typescript
+import { NvisyClient } from '@nvisy/sdk';
+
+const nvisy = new NvisyClient({
+  apiKey: 'YOUR_API_KEY',
+  baseUrl: 'http://localhost:8080'  // Your on-premises instance
+});
+
+const result = await nvisy.documents.redact({
+  file: './document.pdf',
+  detectionTypes: ['pii', 'phi', 'financial']
+});
+
+await result.downloadRedacted('./redacted.pdf');
+```
+
+### Using Python SDK
+
+```python
+from nvisy import NvisyClient
+
+client = NvisyClient(
+    api_key='YOUR_API_KEY',
+    base_url='http://localhost:8080'
+)
+
+result = client.documents.redact(
+    file='./document.pdf',
+    detection_types=['pii', 'phi', 'financial']
+)
+
+result.download_redacted('./redacted.pdf')
+```
+
+## Enabling TLS/HTTPS
+
+For production, enable TLS:
+
+### Generate Certificate
+
+```bash
+# Self-signed certificate (development)
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout /etc/nvisy/certs/tls.key \
+  -out /etc/nvisy/certs/tls.crt
+
+# Or use Let's Encrypt (production)
+certbot certonly --standalone -d nvisy.yourdomain.com
+```
+
+### Update Configuration
+
+```yaml
+server:
+  tls:
+    enabled: true
+    cert_file: /etc/nvisy/certs/tls.crt
+    key_file: /etc/nvisy/certs/tls.key
+```
+
+### Restart Services
+
+```bash
+docker-compose restart
+```
+
+## Setting Up Monitoring
+
+### Enable Metrics
+
+Configure Prometheus metrics:
+
+```yaml
+monitoring:
+  metrics:
+    enabled: true
+    port: 9090
+```
+
+### Prometheus Configuration
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: 'nvisy'
+    static_configs:
+      - targets: ['nvisy:9090']
+```
+
+### Grafana Dashboard
+
+Import the Nvisy dashboard (ID: coming soon) or create custom dashboards using metrics:
+
+- `nvisy_requests_total` - Total API requests
+- `nvisy_processing_duration_seconds` - Processing time
+- `nvisy_detections_total` - Total detections
+- `nvisy_errors_total` - Error count
+
+## User Management
+
+### Create Admin User
+
+```bash
+docker-compose exec nvisy nvisy admin create-user \
+  --email admin@yourcompany.com \
+  --role admin \
+  --password
+```
+
+### Assign Roles
+
+Available roles:
+- `admin` - Full system access
+- `operator` - Manage documents and settings
+- `user` - Redact documents only
+- `viewer` - Read-only access
+
+## Backup Configuration
+
+Set up automated backups:
+
+```bash
+# Create backup script
+cat > /usr/local/bin/nvisy-backup.sh << 'EOF'
+#!/bin/bash
+BACKUP_DIR=/backups/nvisy
+DATE=$(date +%Y%m%d-%H%M%S)
+
+# Backup database
+docker-compose exec -T postgres pg_dump nvisy | \
+  gzip > ${BACKUP_DIR}/db-${DATE}.sql.gz
+
+# Backup storage
+tar -czf ${BACKUP_DIR}/storage-${DATE}.tar.gz \
+  /var/lib/nvisy/data
+
+# Cleanup old backups (keep 30 days)
+find ${BACKUP_DIR} -mtime +30 -delete
+EOF
+
+chmod +x /usr/local/bin/nvisy-backup.sh
+
+# Add to crontab (daily at 2 AM)
+echo "0 2 * * * /usr/local/bin/nvisy-backup.sh" | crontab -
+```
+
+## Performance Tuning
+
+### Optimize Worker Count
+
+```yaml
+ai:
+  max_concurrent_jobs: 20  # Adjust based on CPU cores
+```
+
+Rule of thumb: `(CPU cores - 2) / 2`
+
+### Database Connection Pool
+
+```yaml
+database:
+  max_connections: 100
+  idle_timeout: 300
+```
+
+### Redis Cache Size
+
+```yaml
+redis:
+  max_memory: 8gb
+  eviction_policy: allkeys-lru
+```
+
+### Enable GPU Acceleration
+
+If you have an NVIDIA GPU:
+
+```yaml
+ai:
+  gpu_enabled: true
+  gpu_memory_fraction: 0.8  # Use 80% of GPU memory
+```
+
+## Common Tasks
+
+### View Logs
+
+```bash
+# Docker Compose
+docker-compose logs -f nvisy
+
+# Kubernetes
+kubectl logs -f -n nvisy -l app=nvisy
+
+# Systemd
+journalctl -u nvisy -f
+```
+
+### Restart Services
+
+```bash
+# Docker Compose
+docker-compose restart
+
+# Kubernetes
+kubectl rollout restart deployment/nvisy -n nvisy
+
+# Systemd
+sudo systemctl restart nvisy
+```
+
+### Check Resource Usage
+
+```bash
+# Docker Compose
+docker stats
+
+# Kubernetes
+kubectl top pods -n nvisy
+
+# System
+htop
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Explore the API
+  </Card>
+  <Card title="TypeScript SDK" icon="js" href="/sdks/typescript/installation">
+    Use the SDK
+  </Card>
+  <Card title="Configuration" icon="gear" href="/deployment/on-premise/installation">
+    Advanced configuration
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/deployment/on-premise/installation">
+    Common issues and solutions
+  </Card>
+</CardGroup>

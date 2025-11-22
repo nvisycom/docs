@@ -1,0 +1,376 @@
+---
+title: "API Reference"
+description: "Complete Python SDK API reference"
+---
+
+<Note>
+  The Python SDK is currently in development. This documentation represents the planned API.
+</Note>
+
+## NvisyClient
+
+The main client class for interacting with the Nvisy API.
+
+### Constructor
+
+```python
+NvisyClient(
+    api_key: str,
+    environment: str = 'production',
+    base_url: Optional[str] = None,
+    timeout: int = 30,
+    max_retries: int = 3
+)
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `api_key` | `str` | Required | Your API key |
+| `environment` | `str` | `'production'` | 'production' or 'staging' |
+| `base_url` | `Optional[str]` | `None` | Custom API base URL |
+| `timeout` | `int` | `30` | Request timeout in seconds |
+| `max_retries` | `int` | `3` | Max retry attempts |
+
+## Documents API
+
+### `documents.redact()`
+
+Redact sensitive information from a document.
+
+```python
+documents.redact(
+    file: Union[str, Path, BinaryIO],
+    detection_types: List[DetectionType],
+    confidence_threshold: float = 0.8,
+    custom_patterns: Optional[List[CustomPattern]] = None,
+    preserve_formatting: bool = True,
+    redaction_style: RedactionStyle = 'black-box'
+) -> RedactionResult
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `file` | `str \| Path \| BinaryIO` | Required | File to redact |
+| `detection_types` | `List[DetectionType]` | Required | Types to detect |
+| `confidence_threshold` | `float` | `0.8` | Minimum confidence (0-1) |
+| `custom_patterns` | `List[CustomPattern]` | `None` | Custom patterns |
+| `preserve_formatting` | `bool` | `True` | Preserve formatting |
+| `redaction_style` | `RedactionStyle` | `'black-box'` | Redaction style |
+
+**Returns:** `RedactionResult`
+
+```python
+@dataclass
+class RedactionResult:
+    document_id: str
+    status: str
+    detections: List[Detection]
+    audit_trail: List[AuditEntry]
+    
+    def download_redacted(self, path: Union[str, Path]) -> None: ...
+    def get_redacted_bytes(self) -> bytes: ...
+    def get_redacted_url(self) -> str: ...
+```
+
+**Example:**
+
+```python
+result = client.documents.redact(
+    file='./document.pdf',
+    detection_types=['pii', 'phi'],
+    confidence_threshold=0.85
+)
+```
+
+### `documents.upload()`
+
+Upload a document without redaction.
+
+```python
+documents.upload(
+    file: Union[str, Path, BinaryIO],
+    metadata: Optional[Dict[str, Any]] = None
+) -> Document
+```
+
+**Example:**
+
+```python
+document = client.documents.upload(
+    file='./document.pdf',
+    metadata={'department': 'hr'}
+)
+```
+
+### `documents.get()`
+
+Retrieve document information.
+
+```python
+documents.get(document_id: str) -> Document
+```
+
+### `documents.list()`
+
+List all documents.
+
+```python
+documents.list(
+    limit: int = 50,
+    offset: int = 0,
+    status: Optional[str] = None,
+    sort_by: str = 'created_at',
+    sort_order: str = 'desc'
+) -> DocumentList
+```
+
+### `documents.delete()`
+
+Delete a document.
+
+```python
+documents.delete(document_id: str) -> None
+```
+
+### `documents.batch_redact()`
+
+Redact multiple documents.
+
+```python
+documents.batch_redact(
+    files: List[Union[str, Path]],
+    detection_types: List[DetectionType],
+    parallel: bool = False,
+    max_concurrent: int = 5
+) -> BatchResult
+```
+
+**Example:**
+
+```python
+results = client.documents.batch_redact(
+    files=['doc1.pdf', 'doc2.pdf'],
+    detection_types=['pii'],
+    parallel=True
+)
+```
+
+## Detections API
+
+### `detections.analyze()`
+
+Analyze without redacting.
+
+```python
+detections.analyze(
+    file: Union[str, Path, BinaryIO],
+    detection_types: List[DetectionType]
+) -> AnalysisResult
+```
+
+## Webhooks API
+
+### `webhooks.create()`
+
+Create a webhook.
+
+```python
+webhooks.create(
+    url: str,
+    events: List[str],
+    secret: Optional[str] = None
+) -> Webhook
+```
+
+### `webhooks.list()`
+
+List webhooks.
+
+```python
+webhooks.list() -> List[Webhook]
+```
+
+### `webhooks.delete()`
+
+Delete a webhook.
+
+```python
+webhooks.delete(webhook_id: str) -> None
+```
+
+## Types
+
+### DetectionType
+
+```python
+DetectionType = Literal['pii', 'phi', 'financial', 'custom']
+```
+
+### RedactionStyle
+
+```python
+RedactionStyle = Literal['black-box', 'blur', 'pixelate']
+```
+
+### CustomPattern
+
+```python
+@dataclass
+class CustomPattern:
+    name: str
+    pattern: str  # Regex pattern
+    description: Optional[str] = None
+```
+
+### Detection
+
+```python
+@dataclass
+class Detection:
+    id: str
+    type: DetectionType
+    confidence: float
+    page: int
+    text: str
+    coordinates: Optional[Dict[str, float]] = None
+```
+
+### Document
+
+```python
+@dataclass
+class Document:
+    id: str
+    filename: str
+    status: str
+    created_at: str
+    detections_count: int
+```
+
+### AuditEntry
+
+```python
+@dataclass
+class AuditEntry:
+    id: str
+    timestamp: str
+    action: str
+    user: Optional[Dict[str, str]] = None
+    details: Optional[Dict[str, Any]] = None
+```
+
+## Utility Functions
+
+### `verify_webhook_signature()`
+
+Verify webhook signatures.
+
+```python
+def verify_webhook_signature(
+    payload: bytes,
+    signature: str,
+    secret: str
+) -> bool
+```
+
+**Example:**
+
+```python
+from nvisy import verify_webhook_signature
+from flask import request
+
+@app.route('/webhooks/nvisy', methods=['POST'])
+def handle_webhook():
+    signature = request.headers.get('X-Nvisy-Signature')
+    
+    is_valid = verify_webhook_signature(
+        payload=request.data,
+        signature=signature,
+        secret=webhook_secret
+    )
+    
+    if not is_valid:
+        return 'Invalid signature', 401
+    
+    return 'OK', 200
+```
+
+## AsyncNvisyClient
+
+Async version of the client for better performance.
+
+```python
+from nvisy import AsyncNvisyClient
+
+async with AsyncNvisyClient(api_key='...') as client:
+    result = await client.documents.redact(
+        file='./document.pdf',
+        detection_types=['pii']
+    )
+```
+
+All methods have async equivalents with the same signatures.
+
+## Exceptions
+
+### NvisyError
+
+Base exception for all Nvisy errors.
+
+```python
+class NvisyError(Exception):
+    message: str
+    status_code: Optional[int]
+```
+
+### AuthenticationError
+
+Raised when API key is invalid.
+
+```python
+class AuthenticationError(NvisyError):
+    pass
+```
+
+### RateLimitError
+
+Raised when rate limit is exceeded.
+
+```python
+class RateLimitError(NvisyError):
+    retry_after: int  # Seconds to wait
+```
+
+### ValidationError
+
+Raised when request parameters are invalid.
+
+```python
+class ValidationError(NvisyError):
+    errors: Dict[str, List[str]]
+```
+
+### NotFoundError
+
+Raised when resource is not found.
+
+```python
+class NotFoundError(NvisyError):
+    resource_type: str
+    resource_id: str
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Examples" icon="code" href="/sdks/python/examples">
+    View code examples
+  </Card>
+  <Card title="TypeScript SDK" icon="js" href="/sdks/typescript/installation">
+    Try the TypeScript SDK
+  </Card>
+</CardGroup>

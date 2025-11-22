@@ -1,0 +1,169 @@
+---
+title: "Quick Start"
+description: "Install and get started with the TypeScript SDK in minutes"
+---
+
+## Installation
+
+Install the Nvisy SDK from npm:
+
+<CodeGroup>
+
+```bash npm
+npm install @nvisy/sdk
+```
+
+```bash yarn
+yarn add @nvisy/sdk
+```
+
+```bash pnpm
+pnpm add @nvisy/sdk
+```
+
+</CodeGroup>
+
+<Card title="NPM Package" icon="npm" href="https://www.npmjs.com/package/@nvisy/sdk">
+  View the package on npm
+</Card>
+
+## Requirements
+
+- **Node.js** 16 or higher (for server-side)
+- **Modern browser** with ES2020 support (for client-side)
+- **TypeScript** 4.5+ (optional, for type support)
+
+## Initialize the Client
+
+```typescript
+import { NvisyClient } from '@nvisy/sdk';
+
+const nvisy = new NvisyClient({
+  apiKey: process.env.NVISY_API_KEY,
+  // Optional: specify environment
+  environment: 'production', // or 'staging'
+  // Optional: custom base URL for self-hosted instances
+  baseUrl: 'https://api.nvisy.com'
+});
+```
+
+<Warning>
+  Keep your API key secure. Never commit it to version control or expose it in client-side code. Use environment variables.
+</Warning>
+
+## Your First Redaction
+
+Redact a document in 3 lines of code:
+
+```typescript
+const result = await nvisy.documents.redact({
+  file: './sensitive-document.pdf',
+  detectionTypes: ['pii', 'phi', 'financial']
+});
+
+console.log(`Found ${result.detections.length} sensitive items`);
+await result.downloadRedacted('./redacted.pdf');
+```
+
+## Constructor Options
+
+```typescript
+interface NvisyClientOptions {
+  apiKey: string;              // Required: Your API key
+  environment?: 'production' | 'staging';  // Default: 'production'
+  baseUrl?: string;            // Custom API base URL
+  timeout?: number;            // Request timeout in ms (default: 30000)
+  maxRetries?: number;         // Max retry attempts (default: 3)
+}
+```
+
+## Basic Usage Patterns
+
+### Redact with Custom Confidence
+
+```typescript
+const result = await nvisy.documents.redact({
+  file: './document.pdf',
+  detectionTypes: ['pii'],
+  confidenceThreshold: 0.9  // Higher confidence = fewer false positives
+});
+```
+
+### Redact with Custom Patterns
+
+```typescript
+const result = await nvisy.documents.redact({
+  file: './document.pdf',
+  detectionTypes: ['custom'],
+  customPatterns: [
+    {
+      name: 'employee_id',
+      pattern: /EMP-\d{6}/g,
+      description: 'Employee ID format: EMP-######'
+    }
+  ]
+});
+```
+
+### Upload and Analyze Without Redacting
+
+```typescript
+const analysis = await nvisy.detections.analyze({
+  file: './document.pdf',
+  detectionTypes: ['pii', 'phi']
+});
+
+analysis.detections.forEach(detection => {
+  console.log(`Found ${detection.type} with ${detection.confidence} confidence`);
+});
+```
+
+## Error Handling
+
+```typescript
+import { NvisyError, AuthenticationError, RateLimitError } from '@nvisy/sdk';
+
+try {
+  const result = await nvisy.documents.redact({
+    file: './document.pdf',
+    detectionTypes: ['pii']
+  });
+} catch (error) {
+  if (error instanceof AuthenticationError) {
+    console.error('Invalid API key');
+  } else if (error instanceof RateLimitError) {
+    console.error('Rate limit exceeded. Retry after:', error.retryAfter);
+  } else if (error instanceof NvisyError) {
+    console.error('Nvisy error:', error.message);
+  } else {
+    console.error('Unexpected error:', error);
+  }
+}
+```
+
+## TypeScript Configuration
+
+If using TypeScript, ensure your `tsconfig.json` includes:
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020"],
+    "esModuleInterop": true,
+    "strict": true
+  }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="book" href="/sdks/typescript/api-reference">
+    View complete API documentation
+  </Card>
+  <Card title="Examples" icon="code" href="/sdks/typescript/examples">
+    Explore advanced examples
+  </Card>
+</CardGroup>
