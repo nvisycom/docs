@@ -7,7 +7,7 @@ description: "Frequently asked questions about Nvisy"
 
 <AccordionGroup>
   <Accordion title="What is Nvisy?">
-    Nvisy is an open-source AI-powered document redaction platform that automatically identifies and removes sensitive information from documents while preserving their integrity and formatting. It processes 50+ file formats with 99.9% accuracy.
+    Nvisy is an open-source multimodal redaction platform. It detects and removes sensitive information across documents, images, and audio, combining deterministic patterns, NER, computer vision, and LLM-driven classification into auditable, policy-driven pipelines.
   </Accordion>
   
   <Accordion title="Is Nvisy open-source?">
@@ -23,16 +23,11 @@ description: "Frequently asked questions about Nvisy"
   </Accordion>
   
   <Accordion title="How accurate is the detection?">
-    Nvisy achieves 99.9% accuracy across all detection types. Each detection includes a confidence score so you can review and approve before finalizing.
+    Each detection carries a calibrated confidence score and a provenance chain showing how it was recognized. Runs stop after analysis so findings can be reviewed before anything is modified — detection informs a decision rather than replacing one.
   </Accordion>
   
   <Accordion title="What file formats are supported?">
-    Nvisy supports 50+ formats including:
-    - PDF (text-based and scanned)
-    - Microsoft Office (Word, Excel, PowerPoint)
-    - OpenDocument formats
-    - Images (with OCR)
-    - Plain text, CSV, JSON, XML
+    Documents (`pdf`, `docx`, `rtf`, `txt`, `log`, `html`, `xml`, `json`), tabular data (`csv`, `xlsx`), images (`png`, `jpg`, `tiff`), and audio (`wav`).
     
     [View complete list →](/features/supported-formats)
   </Accordion>
@@ -42,25 +37,13 @@ description: "Frequently asked questions about Nvisy"
 
 <AccordionGroup>
   <Accordion title="How much does Nvisy cost?">
-    Nvisy offers:
-    - **Free tier**: 100 pages/month
-    - **Starter**: $0.10/page for up to 1,000 pages/month
-    - **Pro**: $0.08/page for up to 10,000 pages/month
-    - **Enterprise**: Custom pricing with volume discounts
-    
-    Pricing is per page processed, not per document.
-  </Accordion>
-  
-  <Accordion title="Is there a free trial?">
-    Yes! The free tier includes 100 pages per month with all features enabled and no credit card required.
-  </Accordion>
-  
-  <Accordion title="What counts as a 'page'?">
-    A page is a single page in a document. A 10-page PDF counts as 10 pages. For spreadsheets, each sheet counts as one page.
+    Nvisy is in private beta. [Contact us](mailto:support@nvisy.com) to discuss pricing and access.
   </Accordion>
   
   <Accordion title="Can I use Nvisy on-premises?">
-    Yes! Nvisy offers on-premises deployment for organizations with strict data residency requirements. Contact sales for pricing.
+    Yes. Nvisy is open-source and can be self-hosted, which is the right choice for strict data-residency requirements.
+    
+    [On-premise deployment →](/deployment/on-premise/requirements)
   </Accordion>
 </AccordionGroup>
 
@@ -68,42 +51,32 @@ description: "Frequently asked questions about Nvisy"
 
 <AccordionGroup>
   <Accordion title="Do you have an API?">
-    Yes! Nvisy provides a REST API and official SDKs for TypeScript/JavaScript and Python.
+    Yes. Nvisy provides a REST API and official SDKs for TypeScript, Python, and Rust.
     
     [View API documentation →](/api-reference/introduction)
   </Accordion>
   
-  <Accordion title="What are the rate limits?">
-    Rate limits vary by plan:
-    - Free: 10 requests/second, 100/day
-    - Starter: 50 requests/second, 10,000/day
-    - Pro: 200 requests/second, 100,000/day
-    - Enterprise: Custom limits
-  </Accordion>
-  
   <Accordion title="How long are documents stored?">
-    By default:
-    - Processed documents: 30 days
-    - Audit trails: 7 years
+    There is no fixed default. Retention is set per workspace and can be overridden per pipeline.
     
-    You can configure custom retention policies or use on-premises deployment for complete control.
+    A workspace sets retention for three scopes — original documents, redacted documents, and audit logs. Each is `forever`, `zeroDays` (delete as soon as processing finishes), or a fixed number of days.
+    
+    A pipeline may override retention for the scopes it produces: redacted documents and audit logs. Original documents are ingested rather than produced, so they always follow the workspace baseline.
+    
+    [Audit trails →](/features/audit-trails)
   </Accordion>
   
   <Accordion title="Can I integrate Nvisy with my existing tools?">
-    Yes! Nvisy integrates with:
-    - Cloud storage (S3, Google Drive, Dropbox)
-    - Collaboration tools (Slack, Teams)
-    - CRM systems (Salesforce, HubSpot)
-    - Document management (SharePoint, Confluence)
-    - Workflow automation (Zapier, n8n)
+    Workspaces connect to object storage (`s3`, `azure`, `gcs`) for syncing files in and out, and to LLM providers (`openai`, `anthropic`, `ollama`) for model-driven detection. Webhooks deliver events as runs and syncs progress.
     
     [View all integrations →](/features/integrations)
   </Accordion>
   
   <Accordion title="What programming languages do you support?">
     Official SDKs:
-    - TypeScript/JavaScript (Node.js and browser)
-    - Python (coming soon)
+    - **TypeScript/JavaScript** — full API coverage
+    - **Python** — HTTP client; typed service methods are in progress
+    - **Rust** — HTTP client; typed service methods are in progress
     
     You can also use the REST API with any language.
   </Accordion>
@@ -113,41 +86,25 @@ description: "Frequently asked questions about Nvisy"
   </Accordion>
 </AccordionGroup>
 
-## Security & Compliance
+## Security
 
 <AccordionGroup>
-  <Accordion title="Is Nvisy HIPAA compliant?">
-    Yes, Nvisy is HIPAA compliant. We can provide a Business Associate Agreement (BAA) for healthcare organizations.
-  </Accordion>
-  
-  <Accordion title="Is Nvisy GDPR compliant?">
-    Yes, Nvisy is fully GDPR compliant with data protection and privacy controls built-in.
-  </Accordion>
-  
-  <Accordion title="What other compliance certifications do you have?">
-    - SOC 2 Type II
-    - PCI-DSS
-    - ISO 27001 (in progress)
-  </Accordion>
-  
-  <Accordion title="How is data encrypted?">
-    - **In transit**: TLS 1.3
-    - **At rest**: AES-256
-    - **Key management**: AWS KMS or bring your own keys
+  <Accordion title="What controls does Nvisy provide?">
+    - Workspace isolation as the tenancy and access-control boundary
+    - Per-workspace retention, overridable per pipeline
+    - A reviewable detection phase — nothing is modified until redaction is applied
+    - Verifiable audit trails with per-entity provenance
+    - Self-hosting, so data and inference stay inside your own infrastructure
   </Accordion>
   
   <Accordion title="Where is data stored?">
-    Cloud deployment uses multi-region storage in:
-    - US East (Virginia)
-    - US West (Oregon)
-    - EU West (Ireland)
-    - Asia Pacific (Singapore)
+    Self-hosting gives you complete control over data location. Nvisy is open-source, so the entire platform runs inside your own infrastructure — and pairing it with an `ollama` connection keeps inference local too, so no document content leaves your network.
     
-    You can specify your preferred region. On-premises deployment gives you complete control over data location.
+    [On-premise deployment →](/deployment/on-premise/requirements)
   </Accordion>
   
   <Accordion title="Do you have access to my documents?">
-    No. With on-premises deployment, your documents never leave your infrastructure. For cloud deployment, documents are encrypted and automatically deleted after 30 days (configurable).
+    With self-hosted deployment, your documents never leave your infrastructure. Retention is yours to set per workspace and override per pipeline, including `zeroDays` to delete data as soon as processing finishes.
   </Accordion>
   
   <Accordion title="Can I audit what was redacted?">
@@ -166,20 +123,20 @@ description: "Frequently asked questions about Nvisy"
 
 <AccordionGroup>
   <Accordion title="How do I get started?">
-    1. Sign up at [nvisy.com](https://nvisy.com)
-    2. Generate an API key
-    3. Install the SDK or use the REST API
-    4. Redact your first document
+    1. Sign up at [nvisy.com](https://nvisy.com), or self-host
+    2. Create a workspace and issue an API token
+    3. Install an SDK or call the REST API
+    4. Upload a file, run detection, review, then redact
     
     [View quickstart guide →](/quickstart)
   </Accordion>
   
   <Accordion title="Do I need technical knowledge to use Nvisy?">
-    For the API and SDKs, yes. However, we also offer a web interface for non-technical users. Enterprise customers can request custom integrations.
+    For the API and SDKs, yes. A web interface is also available for reviewing detections and approving redactions without writing code.
   </Accordion>
   
   <Accordion title="Can I test Nvisy before committing?">
-    Absolutely! Use the free tier to test with up to 100 pages per month, no credit card required.
+    Yes. Nvisy is open-source, so you can self-host and evaluate the full platform locally. For cloud access during private beta, [contact us](mailto:support@nvisy.com).
   </Accordion>
   
   <Accordion title="What if I need help?">
@@ -187,7 +144,6 @@ description: "Frequently asked questions about Nvisy"
     - Documentation and guides
     - Email support (support@nvisy.com)
     - GitHub issues
-    - Enterprise customers get priority support with SLA
   </Accordion>
 </AccordionGroup>
 
@@ -195,11 +151,9 @@ description: "Frequently asked questions about Nvisy"
 
 <AccordionGroup>
   <Accordion title="Can I customize what gets redacted?">
-    Yes! You can:
-    - Set confidence thresholds
-    - Define custom patterns
-    - Review and approve/reject detections
-    - Choose redaction styles (black box, blur, pixelate)
+    Yes. A policy targets labels from the deployment's taxonomy and names the operator to apply to each, per modality — for example `blackbox`, `blur`, or `pixelate` for images, and `mask`, `replace`, `pseudonymize`, or `encrypt` for text. Reviewers can override any individual detection before redaction is applied.
+    
+    [Redaction workflow →](/features/redaction-workflow)
   </Accordion>
   
   <Accordion title="Can I process documents in bulk?">
@@ -211,11 +165,7 @@ description: "Frequently asked questions about Nvisy"
   </Accordion>
   
   <Accordion title="Can I get notifications when redaction is complete?">
-    Yes! Set up webhooks to receive real-time notifications for:
-    - Redaction completed
-    - Redaction failed
-    - Document uploaded
-    - Document deleted
+    Yes. Register a webhook to receive events as runs and syncs progress, or subscribe to a run's server-sent events stream for live status.
     
     [Learn about webhooks →](/api-reference/introduction#webhooks)
   </Accordion>
@@ -229,13 +179,9 @@ description: "Frequently asked questions about Nvisy"
   </Accordion>
   
   <Accordion title="Can I redact specific types of information only?">
-    Yes! You can specify exactly which types to detect:
-    ```typescript
-    detectionTypes: ['pii']  // Only PII
-    detectionTypes: ['phi']  // Only PHI
-    detectionTypes: ['financial']  // Only financial
-    detectionTypes: ['pii', 'phi']  // Multiple types
-    ```
+    Yes. A policy targets specific labels from the deployment's taxonomy and names the operator to apply to each. Query `GET /catalog/labels/` to see what a deployment supports, then reference those labels from your policy.
+    
+    Because `keep` is an operator, a policy can also record that something was recognized and deliberately left intact.
   </Accordion>
 </AccordionGroup>
 
@@ -290,15 +236,11 @@ description: "Frequently asked questions about Nvisy"
     - Detection types enabled
     - Current system load
     
-    Average processing time is under 60 seconds. Large documents (100+ pages) may take longer.
+    Processing is usually under 10 seconds. Large documents and OCR-heavy scans take longer.
   </Accordion>
   
   <Accordion title="Why am I getting rate limited?">
-    You've exceeded your plan's rate limit. Solutions:
-    - Wait for the rate limit to reset
-    - Upgrade to a higher plan
-    - Implement exponential backoff in your code
-    - Contact sales for custom limits
+    Retry with exponential backoff. In the TypeScript SDK, `NvisyApiError.isRetryable()` tells you whether an error is worth retrying.
   </Accordion>
   
   <Accordion title="My file upload is failing">

@@ -1,573 +1,100 @@
 ---
 title: "Examples"
-description: "Code examples for common use cases with the Python SDK"
+description: "Common usage patterns with the Python SDK"
 ---
 
-<Note>
-  The Python SDK is currently in development. These examples represent the planned API.
-</Note>
+<Warning>
+  The Python SDK currently exposes a generic HTTP client. These examples call
+  endpoints by path — see the [API Reference](/api-reference/introduction) for
+  the full endpoint list.
+</Warning>
 
-## Basic Redaction
-
-Simple document redaction:
-
-```python
-from nvisy import NvisyClient
-import os
-
-client = NvisyClient(api_key=os.getenv('NVISY_API_KEY'))
-
-result = client.documents.redact(
-    file='./sensitive-document.pdf',
-    detection_types=['pii', 'phi', 'financial']
-)
-
-print(f"Redacted {len(result.detections)} items")
-result.download_redacted('./redacted.pdf')
-```
-
-## Custom Detection Patterns
-
-Define organization-specific patterns:
+## Synchronous Usage
 
 ```python
-from nvisy import CustomPattern
+from nvisy import Client
 
-result = client.documents.redact(
-    file='./employee-records.pdf',
-    detection_types=['custom'],
-    custom_patterns=[
-        CustomPattern(
-            name='employee_id',
-            pattern=r'EMP-\d{6}',
-            description='Employee ID: EMP-######'
-        ),
-        CustomPattern(
-            name='project_code',
-            pattern=r'PRJ-[A-Z]{3}-\d{4}',
-            description='Project code'
-        )
-    ]
-)
+with Client({"api_key": "your-api-token"}) as client:
+    workspaces = client.get_sync("/workspaces/")
+    print(workspaces)
 ```
 
-## Batch Processing
-
-Process multiple documents:
-
-```python
-from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
-
-files = list(Path('./documents').glob('*.pdf'))
-
-def redact_file(file_path):
-    return client.documents.redact(
-        file=str(file_path),
-        detection_types=['pii']
-    )
-
-# Process in parallel
-with ThreadPoolExecutor(max_workers=5) as executor:
-    results = list(executor.map(redact_file, files))
-
-print(f"Processed {len(results)} documents")
-```
-
-Or use the batch API:
-
-```python
-batch_result = client.documents.batch_redact(
-    files=['./doc1.pdf', './doc2.pdf', './doc3.pdf'],
-    detection_types=['pii', 'phi'],
-    parallel=True,
-    max_concurrent=5
-)
-
-for i, result in enumerate(batch_result.results):
-    if result.status == 'completed':
-        print(f"✓ File {i+1}")
-    else:
-        print(f"✗ File {i+1}: {result.error}")
-```
-
-## Async Processing
-
-Use async/await for better performance:
+## Async Usage
 
 ```python
 import asyncio
-from nvisy import AsyncNvisyClient
 
-async def redact_documents():
-    async with AsyncNvisyClient(api_key=os.getenv('NVISY_API_KEY')) as client:
-        # Redact multiple documents concurrently
-        tasks = [
-            client.documents.redact(
-                file=f'./doc{i}.pdf',
-                detection_types=['pii']
-            )
-            for i in range(1, 6)
-        ]
-        
-        results = await asyncio.gather(*tasks)
-        
-        for i, result in enumerate(results, 1):
-            print(f"Document {i}: {len(result.detections)} detections")
+from nvisy import Client
 
-asyncio.run(redact_documents())
+
+async def main() -> None:
+    async with Client({"api_key": "your-api-token"}) as client:
+        workspaces = await client.get("/workspaces/")
+        print(workspaces)
+
+
+asyncio.run(main())
 ```
 
-## Streaming Large Files
-
-Handle large files efficiently:
+## Configuration from the Environment
 
 ```python
-with open('./large-document.pdf', 'rb') as file:
-    result = client.documents.redact(
-        file=file,
-        detection_types=['pii', 'phi']
-    )
-```
-
-## Django Integration
-
-Integrate with Django:
-
-```python
-from django.http import JsonResponse, FileResponse
-from django.views.decorators.csrf import csrf_exempt
-from nvisy import NvisyClient
-import os
-import tempfile
-
-client = NvisyClient(api_key=os.getenv('NVISY_API_KEY'))
-
-@csrf_exempt
-def redact_document(request):
-    if request.method == 'POST' and request.FILES.get('document'):
-        file = request.FILES['document']
-        
-        result = client.documents.redact(
-            file=file,
-            detection_types=['pii', 'phi', 'financial']
-        )
-        
-        # Save to temporary file
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            result.download_redacted(tmp.name)
-            
-            response = FileResponse(
-                open(tmp.name, 'rb'),
-                as_attachment=True,
-                filename=f'redacted_{file.name}'
-            )
-            return response
-    
-    return JsonResponse({'error': 'Invalid request'}, status=400)
-```
-
-## Flask Integration
-
-Integrate with Flask:
-
-```python
-from flask import Flask, request, send_file, jsonify
-from nvisy import NvisyClient
-import os
-import tempfile
-
-app = Flask(__name__)
-client = NvisyClient(api_key=os.getenv('NVISY_API_KEY'))
-
-@app.route('/redact', methods=['POST'])
-def redact():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file provided'}), 400
-    
-    file = request.files['file']
-    
-    # Redact document
-    result = client.documents.redact(
-        file=file,
-        detection_types=['pii', 'phi', 'financial']
-    )
-    
-    # Save to temporary file
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
-        result.download_redacted(tmp.name)
-        return send_file(
-            tmp.name,
-            as_attachment=True,
-            download_name=f'redacted_{file.filename}'
-        )
-
-if __name__ == '__main__':
-    app.run()
-```
-
-## Webhook Handler
-
-Handle webhook events:
-
-```python
-from flask import Flask, request
-from nvisy import verify_webhook_signature
-
-app = Flask(__name__)
-
-@app.route('/webhooks/nvisy', methods=['POST'])
-def handle_webhook():
-    signature = request.headers.get('X-Nvisy-Signature')
-    
-    # Verify signature
-    is_valid = verify_webhook_signature(
-        payload=request.data,
-        signature=signature,
-        secret=os.getenv('WEBHOOK_SECRET')
-    )
-    
-    if not is_valid:
-        return 'Invalid signature', 401
-    
-    event = request.json
-    
-    if event['type'] == 'redaction.completed':
-        document_id = event['data']['document_id']
-        print(f"Redaction completed: {document_id}")
-        # Process completed redaction
-    
-    elif event['type'] == 'redaction.failed':
-        document_id = event['data']['document_id']
-        error = event['data']['error']
-        print(f"Redaction failed: {document_id} - {error}")
-        # Handle failure
-    
-    return 'OK', 200
-```
-
-## Error Handling with Retry
-
-Implement retry logic:
-
-```python
-from nvisy.exceptions import RateLimitError, NvisyError
-import time
-
-def redact_with_retry(file_path, max_retries=3):
-    for attempt in range(max_retries):
-        try:
-            result = client.documents.redact(
-                file=file_path,
-                detection_types=['pii']
-            )
-            return result
-            
-        except RateLimitError as e:
-            if attempt < max_retries - 1:
-                print(f"Rate limited, waiting {e.retry_after}s...")
-                time.sleep(e.retry_after)
-                continue
-            raise
-            
-        except NvisyError as e:
-            if attempt < max_retries - 1:
-                wait_time = 2 ** attempt  # Exponential backoff
-                print(f"Error occurred, retrying in {wait_time}s...")
-                time.sleep(wait_time)
-                continue
-            raise
-
-result = redact_with_retry('./document.pdf')
-```
-
-## Complete Workflow
-
-End-to-end example:
-
-```python
-from nvisy import NvisyClient
-from pathlib import Path
-import json
 import os
 
-def complete_workflow():
-    client = NvisyClient(api_key=os.getenv('NVISY_API_KEY'))
-    
-    try:
-        # 1. Upload and redact
-        print('Processing document...')
-        result = client.documents.redact(
-            file='./sensitive-data.pdf',
-            detection_types=['pii', 'phi', 'financial'],
-            confidence_threshold=0.85
-        )
-        
-        # 2. Review detections
-        print(f"\nFound {len(result.detections)} sensitive items:")
-        for i, detection in enumerate(result.detections, 1):
-            confidence_pct = detection.confidence * 100
-            print(f"{i}. {detection.type} ({confidence_pct:.1f}% confidence)")
-        
-        # 3. Download redacted file
-        print('\nDownloading redacted document...')
-        result.download_redacted('./redacted-data.pdf')
-        
-        # 4. Save audit trail
-        print('Saving audit trail...')
-        with open('./audit-trail.json', 'w') as f:
-            json.dump(
-                [vars(entry) for entry in result.audit_trail],
-                f,
-                indent=2
-            )
-        
-        # 5. Generate report
-        detections_by_type = {}
-        for d in result.detections:
-            detections_by_type[d.type] = detections_by_type.get(d.type, 0) + 1
-        
-        report = {
-            'document_id': result.document_id,
-            'processed_at': str(result.audit_trail[-1].timestamp),
-            'detections_count': len(result.detections),
-            'detections_by_type': detections_by_type
-        }
-        
-        print('\nRedaction Report:')
-        print(json.dumps(report, indent=2))
-        
-        print('\n✓ Workflow complete!')
-        
-    except Exception as e:
-        print(f"❌ Workflow failed: {e}")
-        raise
+os.environ["NVISY_API_KEY"] = "your-api-token"
 
-if __name__ == '__main__':
-    complete_workflow()
+client = Client.from_environment()
 ```
 
-## Testing
-
-Mock the client for testing:
+## Listing Files in a Workspace
 
 ```python
-from unittest.mock import Mock, patch
-import pytest
-from nvisy import NvisyClient
-
-def test_document_redaction():
-    # Mock the client
-    with patch('nvisy.NvisyClient') as MockClient:
-        mock_result = Mock()
-        mock_result.document_id = 'doc_123'
-        mock_result.status = 'completed'
-        mock_result.detections = [
-            Mock(type='pii', confidence=0.95)
-        ]
-        
-        mock_client = MockClient.return_value
-        mock_client.documents.redact.return_value = mock_result
-        
-        # Test
-        client = NvisyClient(api_key='test-key')
-        result = client.documents.redact(
-            file='./test.pdf',
-            detection_types=['pii']
-        )
-        
-        assert result.status == 'completed'
-        assert len(result.detections) == 1
-        mock_client.documents.redact.assert_called_once()
-```
-
-## Logging
-
-Configure logging for debugging:
-
-```python
-import logging
-
-# Enable SDK logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+files = client.get_sync(
+    "/workspaces/acme/files/",
+    params={"limit": 50},
 )
 
-logger = logging.getLogger('nvisy')
-logger.setLevel(logging.DEBUG)
-
-# Now SDK operations will be logged
-result = client.documents.redact(
-    file='./document.pdf',
-    detection_types=['pii']
-)
+for item in files["items"]:
+    print(item["id"], item["originalFilename"])
 ```
 
-## Troubleshooting
-
-### Common Issues
-
-<AccordionGroup>
-  <Accordion title="ModuleNotFoundError: No module named 'nvisy'">
-    **Cause**: Package not installed or wrong Python environment
-    
-    **Solution**:
-    ```bash
-    # Verify installation
-    pip show nvisy
-    
-    # Reinstall if needed
-    pip install nvisy
-    
-    # Check which Python
-    which python
-    python --version
-    ```
-  </Accordion>
-  
-  <Accordion title="Authentication failed">
-    **Cause**: Invalid or missing API key
-    
-    **Solution**:
-    ```python
-    import os
-    
-    # Check API key is set
-    api_key = os.getenv('NVISY_API_KEY')
-    if not api_key:
-        print("API key not set")
-    
-    # Load from .env file
-    from dotenv import load_dotenv
-    load_dotenv()
-    ```
-  </Accordion>
-  
-  <Accordion title="Rate limit exceeded">
-    **Cause**: Too many requests
-    
-    **Solution**:
-    ```python
-    from nvisy.exceptions import RateLimitError
-    import time
-    
-    try:
-        result = client.documents.redact(...)
-    except RateLimitError as e:
-        # Wait before retrying
-        time.sleep(e.retry_after)
-        # Retry request
-    ```
-  </Accordion>
-  
-  <Accordion title="File not found">
-    **Cause**: Incorrect file path
-    
-    **Solution**:
-    ```python
-    from pathlib import Path
-    
-    # Check file exists
-    file_path = Path('./document.pdf')
-    if not file_path.exists():
-        print(f"File not found: {file_path}")
-    
-    # Check file size
-    if file_path.stat().st_size > 100 * 1024 * 1024:
-        print("File too large (max 100MB)")
-    ```
-  </Accordion>
-  
-  <Accordion title="SSL certificate verification failed">
-    **Cause**: Network or certificate issues
-    
-    **Solution**:
-    ```python
-    # Not recommended for production
-    import urllib3
-    urllib3.disable_warnings()
-    
-    # Or update certificates
-    pip install --upgrade certifi
-    ```
-  </Accordion>
-</AccordionGroup>
-
-### Debugging
-
-Enable debug logging:
+## Starting a Pipeline Run
 
 ```python
-import logging
-
-# Enable SDK logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+run = client.post_sync(
+    "/workspaces/acme/pipelines/default/runs/",
+    json={"fileId": file_id},
 )
 
-logger = logging.getLogger('nvisy')
-logger.setLevel(logging.DEBUG)
+print(run["id"], run["status"])
 ```
 
-Inspect requests:
+## Error Handling
 
 ```python
-import http.client as http_client
+from nvisy import ApiError, ConfigError, NetworkError
 
-# Enable HTTP debugging
-http_client.HTTPConnection.debuglevel = 1
+try:
+    response = client.get_sync("/workspaces/acme/")
+except ApiError as error:
+    print(f"[{error.status_code}] {error}")
+    if error.request_id:
+        print("request id:", error.request_id)
+except NetworkError as error:
+    print("network failure:", error)
+except ConfigError as error:
+    print("bad configuration:", error)
 ```
 
-### Performance Tips
+## Custom Timeouts and Retries
 
-1. **Use context managers**:
-   ```python
-   with NvisyClient(api_key='...') as client:
-       result = client.documents.redact(...)
-   # Automatically cleaned up
-   ```
-
-2. **Async for better concurrency**:
-   ```python
-   import asyncio
-   from nvisy import AsyncNvisyClient
-   
-   async with AsyncNvisyClient(api_key='...') as client:
-       tasks = [client.documents.redact(...) for _ in range(10)]
-       results = await asyncio.gather(*tasks)
-   ```
-
-3. **Reuse client instances**:
-   ```python
-   # Good: Reuse client
-   client = NvisyClient(api_key='...')
-   for file in files:
-       result = client.documents.redact(file=file)
-   
-   # Bad: Create new client each time
-   for file in files:
-       client = NvisyClient(api_key='...')  # ❌
-   ```
-
-4. **Use generators for large datasets**:
-   ```python
-   def process_documents(files):
-       for file in files:
-           yield client.documents.redact(file=file)
-   
-   for result in process_documents(large_file_list):
-       print(f"Processed {result.document_id}")
-   ```
-
-## Next Steps
-
-<CardGroup cols={2}>
-  <Card title="API Reference" icon="book" href="/sdks/python/api-reference">
-    Complete API documentation
-  </Card>
-  <Card title="TypeScript SDK" icon="js" href="/sdks/typescript/quickstart">
-    Try the TypeScript SDK
-  </Card>
-</CardGroup>
+```python
+client = (
+    Client.builder()
+    .with_api_key("your-api-token")
+    .with_timeout(120.0)
+    .with_max_retries(5)
+    .with_debug(True)
+    .build()
+)
+```

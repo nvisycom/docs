@@ -192,53 +192,78 @@ docker-compose exec nvisy nvisy admin revoke-api-key --key-id KEY_ID
 
 ## First Redaction
 
+### Verify the Instance
+
+```bash
+curl http://localhost:8080/health/
+```
+
+A healthy instance reports each component:
+
+```json
+{
+  "status": "healthy",
+  "checks": [
+    { "name": "postgres", "status": "healthy" },
+    { "name": "nats", "status": "healthy" },
+    { "name": "webhook", "status": "healthy" }
+  ]
+}
+```
+
 ### Using cURL
 
 ```bash
-# Upload and redact
-curl -X POST http://localhost:8080/v1/documents/redact \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -F "file=@document.pdf" \
-  -F "detection_types=pii,phi,financial" \
-  -F "confidence_threshold=0.8" \
-  -o redacted-document.pdf
+curl http://localhost:8080/workspaces/ \
+  -H "Authorization: Bearer $NVISY_API_TOKEN"
 ```
 
-### Using TypeScript SDK
+### Using an SDK
 
-```typescript
-import { NvisyClient } from '@nvisy/sdk';
+Point the client's base URL at your instance — everything else is identical to
+cloud:
 
-const nvisy = new NvisyClient({
-  apiKey: 'YOUR_API_KEY',
-  baseUrl: 'http://localhost:8080'  // Your on-premises instance
+<CodeGroup>
+
+```typescript TypeScript
+import { Nvisy } from "@nvisy/sdk";
+
+const client = new Nvisy({
+  apiToken: process.env.NVISY_API_TOKEN!,
+  baseUrl: "http://localhost:8080",
 });
 
-const result = await nvisy.documents.redact({
-  file: './document.pdf',
-  detectionTypes: ['pii', 'phi', 'financial']
-});
-
-await result.downloadRedacted('./redacted.pdf');
+const workspaces = await client.workspaces.listWorkspaces();
 ```
 
-### Using Python SDK
+```python Python
+import os
 
-```python
-from nvisy import NvisyClient
+from nvisy import Client
 
-client = NvisyClient(
-    api_key='YOUR_API_KEY',
-    base_url='http://localhost:8080'
-)
-
-result = client.documents.redact(
-    file='./document.pdf',
-    detection_types=['pii', 'phi', 'financial']
-)
-
-result.download_redacted('./redacted.pdf')
+client = Client({
+    "api_key": os.environ["NVISY_API_TOKEN"],
+    "base_url": "http://localhost:8080",
+})
 ```
+
+```rust Rust
+let client = Nvisy::builder()
+    .with_api_key(&std::env::var("NVISY_API_TOKEN")?)
+    .with_base_url("http://localhost:8080")
+    .build()?;
+```
+
+</CodeGroup>
+
+See the [Quickstart](/quickstart) for the full upload → analyze → review →
+redact flow.
+
+<Note>
+  Self-hosting pairs well with an `ollama` [connection](/features/integrations)
+  — inference then runs inside your infrastructure too, so no document content
+  leaves your network.
+</Note>
 
 ## Enabling TLS/HTTPS
 
@@ -436,7 +461,7 @@ htop
   <Card title="API Reference" icon="code" href="/api-reference/introduction">
     Explore the API
   </Card>
-  <Card title="TypeScript SDK" icon="js" href="/sdks/typescript/installation">
+  <Card title="TypeScript SDK" icon="js" href="/sdks/typescript/quickstart">
     Use the SDK
   </Card>
   <Card title="Configuration" icon="gear" href="/deployment/on-premise/installation">

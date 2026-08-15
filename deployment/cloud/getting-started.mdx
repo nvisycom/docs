@@ -1,229 +1,94 @@
 ---
-title: "Cloud Deployment"
-description: "Deploy Nvisy using our fully managed cloud service"
+title: "Getting Started"
+description: "Start using Nvisy Cloud"
 ---
 
-Deploy Nvisy in minutes using our fully managed cloud service. No infrastructure setup required—just sign up, get your API key, and start redacting documents.
+Nvisy Cloud is the fully managed deployment. There is no infrastructure to run
+— create a workspace, issue an API token, and start processing documents.
 
-## Quick Start
+<Card title="Sign up" icon="cloud" href="https://nvisy.com">
+  Create an account at nvisy.com
+</Card>
+
+## Setup
 
 <Steps>
-  <Step title="Sign Up">
-    Create a Nvisy account at [nvisy.com](https://nvisy.com)
+  <Step title="Create an account">
+    Sign up at [nvisy.com](https://nvisy.com).
   </Step>
-  <Step title="Get API Key">
-    Generate your API key from the dashboard
+  <Step title="Create a workspace">
+    Workspaces are the tenancy boundary — files, pipelines, policies, and
+    members all belong to one.
   </Step>
-  <Step title="Start Using">
-    Use the API or SDKs to begin redacting documents
+  <Step title="Issue an API token">
+    Under **API Tokens** in your account settings. Store it immediately; it is
+    shown only once.
   </Step>
 </Steps>
 
-## Features
-
-<CardGroup cols={2}>
-  <Card title="Auto-Scaling" icon="chart-line">
-    Automatically scales to handle your workload
-  </Card>
-  <Card title="High Availability" icon="circle-check">
-    99.9% uptime SLA with multi-region deployment
-  </Card>
-  <Card title="Automatic Updates" icon="arrows-rotate">
-    Always running the latest version with new features
-  </Card>
-  <Card title="Built-in Monitoring" icon="chart-bar">
-    Real-time metrics and performance monitoring
-  </Card>
-</CardGroup>
-
-## Architecture
-
-Cloud deployment uses a globally distributed architecture:
-
-```
-User Request
-    ↓
-Global Load Balancer
-    ↓
-Regional API Gateway (Multi-region)
-    ↓
-Redaction Service (Auto-scaling)
-    ↓
-AI Detection Engine (GPU-accelerated)
-    ↓
-Encrypted Storage (S3-compatible)
-```
-
-## Authentication
-
-All cloud API requests require authentication:
+## Connect
 
 ```bash
-curl https://api.nvisy.com/v1/documents/redact \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -F "file=@document.pdf"
+export NVISY_API_TOKEN="..."
 ```
 
-<Warning>
-  Keep your API key secure. Never commit it to version control or expose it in client-side code.
-</Warning>
+<CodeGroup>
 
-## Regions
+```typescript TypeScript
+import { Nvisy } from "@nvisy/sdk";
 
-Available regions:
-- **US East** (Virginia) - `us-east-1`
-- **US West** (Oregon) - `us-west-2`
-- **EU West** (Ireland) - `eu-west-1`
-- **Asia Pacific** (Singapore) - `ap-southeast-1`
+const client = new Nvisy({ apiToken: process.env.NVISY_API_TOKEN! });
 
-Specify region in your API calls:
-
-```typescript
-const nvisy = new NvisyClient({
-  apiKey: process.env.NVISY_API_KEY,
-  region: 'us-east-1'
-});
+const workspaces = await client.workspaces.listWorkspaces();
 ```
 
-## Pricing
+```bash cURL
+curl https://api.nvisy.com/workspaces/ \
+  -H "Authorization: Bearer $NVISY_API_TOKEN"
+```
 
-Cloud deployment uses usage-based pricing:
+</CodeGroup>
 
-| Tier | Pages/Month | Price per Page | Included Features |
-|------|-------------|----------------|-------------------|
-| **Free** | 100 | $0.00 | All features, 24hr support |
-| **Starter** | 1,000 | $0.10 | All features, email support |
-| **Pro** | 10,000 | $0.08 | All features, priority support |
-| **Enterprise** | Custom | Custom | SLA, dedicated support |
+The cloud API is served from `https://api.nvisy.com`.
+
+## Your First Redaction
+
+See the [Quickstart](/quickstart) for the full upload → analyze → review →
+redact flow.
+
+## What Cloud Manages
+
+| Concern | Handled by |
+|---------|------------|
+| Postgres and NATS | Nvisy |
+| Engine workers and scaling | Nvisy |
+| Upgrades and migrations | Nvisy |
+| Workspace data and policies | You |
+
+## When to Self-Host
+
+Choose [on-premise](/deployment/on-premise/requirements) when documents must
+not leave your infrastructure, when you need to run inference locally with
+`ollama`, or when retention is governed by internal policy.
 
 <Note>
-  Pricing is per page processed, not per document. A 10-page PDF counts as 10 pages.
+  The API is the same in both deployments. Code written against cloud runs
+  unchanged against a self-hosted instance by pointing `baseUrl` at it.
 </Note>
-
-## Security
-
-### Data Encryption
-- **In transit:** TLS 1.3 encryption
-- **At rest:** AES-256 encryption
-- **Key management:** AWS KMS or bring your own keys
-
-### Data Retention
-- **Processed documents:** Deleted after 30 days by default
-- **Audit trails:** Retained for 7 years
-- **Custom retention:** Available on Enterprise plan
-
-### Compliance Certifications
-- SOC 2 Type II
-- GDPR compliant
-- HIPAA compliant (BAA available)
-- ISO 27001
-
-## Rate Limits
-
-| Plan | Requests/Second | Concurrent Requests |
-|------|----------------|---------------------|
-| Free | 10 | 5 |
-| Starter | 50 | 20 |
-| Pro | 200 | 100 |
-| Enterprise | Custom | Custom |
-
-Rate limit headers included in responses:
-```
-X-RateLimit-Limit: 50
-X-RateLimit-Remaining: 45
-X-RateLimit-Reset: 1640995200
-```
-
-## Monitoring & Observability
-
-Access real-time metrics in the dashboard:
-- Request volume and success rate
-- Processing time and throughput
-- Detection accuracy metrics
-- Cost and usage analytics
-
-### Webhooks
-
-Set up webhooks for real-time notifications:
-
-```typescript
-const webhook = await nvisy.webhooks.create({
-  url: 'https://your-app.com/webhooks/nvisy',
-  events: ['redaction.completed', 'redaction.failed']
-});
-```
-
-## Support
-
-Cloud deployment includes:
-
-<CardGroup cols={2}>
-  <Card title="24/7 Email Support" icon="envelope">
-    support@nvisy.com
-  </Card>
-  <Card title="Status Page" icon="signal">
-    status.nvisy.com
-  </Card>
-  <Card title="Documentation" icon="book">
-    docs.nvisy.com
-  </Card>
-  <Card title="API Status" icon="chart-line">
-    Real-time API health monitoring
-  </Card>
-</CardGroup>
-
-## Migration from On-Premises
-
-Migrating to cloud from on-premises:
-
-<Steps>
-  <Step title="Audit Current Setup">
-    Document your current redaction workflows and integrations
-  </Step>
-  <Step title="Test in Parallel">
-    Run cloud deployment alongside on-premises to verify results
-  </Step>
-  <Step title="Update Endpoints">
-    Point your applications to cloud API endpoints
-  </Step>
-  <Step title="Monitor & Optimize">
-    Monitor performance and adjust configuration as needed
-  </Step>
-</Steps>
-
-## Best Practices
-
-### API Key Management
-- Use environment variables for API keys
-- Rotate keys regularly
-- Use separate keys for development and production
-- Implement key rotation automation
-
-### Performance Optimization
-- Upload documents in parallel for batch processing
-- Use appropriate confidence thresholds
-- Enable only needed detection types
-- Cache results when possible
-
-### Cost Optimization
-- Set confidence thresholds appropriately to reduce false positives
-- Use batch processing for multiple documents
-- Implement client-side file validation before upload
-- Monitor usage regularly
 
 ## Next Steps
 
 <CardGroup cols={2}>
-  <Card title="Quickstart Guide" icon="rocket" href="/quickstart">
-    Start redacting documents now
+  <Card title="Authentication" icon="key" href="/deployment/cloud/authentication">
+    Tokens, sessions, and rotation
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Redact your first document
+  </Card>
+  <Card title="Integrations" icon="plug" href="/features/integrations">
+    Connect storage and LLM providers
   </Card>
   <Card title="API Reference" icon="code" href="/api-reference/introduction">
-    Explore API endpoints
-  </Card>
-  <Card title="TypeScript SDK" icon="js" href="/sdks/typescript">
-    Use the TypeScript SDK
-  </Card>
-  <Card title="Pricing" icon="dollar-sign" href="https://nvisy.com/pricing">
-    View detailed pricing
+    Every endpoint
   </Card>
 </CardGroup>

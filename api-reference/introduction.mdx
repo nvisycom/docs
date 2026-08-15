@@ -1,269 +1,162 @@
 ---
-title: 'API Reference'
-description: 'Complete REST API documentation for Nvisy document redaction'
+title: "Introduction"
+description: "Getting started with the Nvisy REST API"
 ---
 
-## Overview
+The Nvisy API is a REST API over HTTPS. It accepts and returns JSON, except
+where file content is uploaded or downloaded.
 
-The Nvisy REST API provides programmatic access to all document redaction features. Built on REST principles, the API uses standard HTTP methods, authentication, and status codes.
+<Info>
+  The endpoint reference in this section is generated directly from the
+  server's OpenAPI specification, so it always reflects the deployed API.
+</Info>
 
-<Card title="Base URL" icon="link">
-  ```
-  https://api.nvisy.com/v1
-  ```
-</Card>
+## Base URL
+
+```
+https://api.nvisy.com
+```
+
+Self-hosted deployments serve the same API from their own host. A local
+development server defaults to `http://127.0.0.1:8080`.
 
 ## Authentication
 
-All API requests require authentication using Bearer tokens.
-
-### Get Your API Key
-
-1. Sign up at [nvisy.com](https://nvisy.com)
-2. Navigate to Settings → API Keys
-3. Generate a new API key
-
-### Using Your API Key
-
-Include your API key in the `Authorization` header:
+All requests authenticate with a bearer token:
 
 ```bash
-curl https://api.nvisy.com/v1/documents/redact \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -F "file=@document.pdf"
+curl https://api.nvisy.com/workspaces/ \
+  -H "Authorization: Bearer $NVISY_API_TOKEN"
 ```
+
+Create tokens under **API Tokens** in your account settings, or through the
+`/api-tokens/` endpoints.
 
 <Warning>
-  Never expose your API key in client-side code or commit it to version control. Use environment variables or secure secret management.
+  A token's secret is returned only once, at creation. Store it securely — it
+  cannot be retrieved afterwards.
 </Warning>
 
-## Rate Limits
+## Workspaces
 
-API requests are rate-limited based on your plan:
+Nearly every resource lives inside a workspace, addressed by its slug:
 
-| Plan | Requests/Second | Daily Limit |
-|------|----------------|-------------|
-| Free | 10 | 100 |
-| Starter | 50 | 10,000 |
-| Pro | 200 | 100,000 |
-| Enterprise | Custom | Custom |
-
-### Rate Limit Headers
-
-Responses include rate limit information:
-
-```http
-X-RateLimit-Limit: 50
-X-RateLimit-Remaining: 45
-X-RateLimit-Reset: 1640995200
+```
+/workspaces/{workspaceSlug}/files/
+/workspaces/{workspaceSlug}/pipelines/
+/workspaces/{workspaceSlug}/runs/{runId}/
 ```
 
-### Handling Rate Limits
+Workspaces are the tenancy and access-control boundary. List yours with
+`GET /workspaces/`.
 
-When rate limited, the API returns `429 Too Many Requests`:
+## The Redaction Workflow
 
-```json
-{
-  "error": {
-    "code": "rate_limit_exceeded",
-    "message": "Rate limit exceeded. Retry after 60 seconds.",
-    "retry_after": 60
-  }
-}
-```
+Redaction happens in two phases, so findings can be reviewed before anything is
+modified.
 
-## Request Format
+<Steps>
+  <Step title="Upload a file">
+    `POST /workspaces/{workspaceSlug}/files/` — multipart upload, returns file
+    metadata including the file ID.
+  </Step>
+  <Step title="Start a run">
+    `POST /workspaces/{workspaceSlug}/pipelines/{pipelineSlug}/runs/` with a
+    `fileId`. The run analyzes the document against the pipeline's policy.
+  </Step>
+  <Step title="Review detections">
+    `GET /workspaces/{workspaceSlug}/runs/{runId}/detections/` returns the
+    audit of what was found.
+  </Step>
+  <Step title="Apply redactions">
+    `POST /workspaces/{workspaceSlug}/runs/{runId}/redactions/` produces the
+    redacted output file.
+  </Step>
+</Steps>
 
-All POST requests accept:
-- **Content-Type**: `multipart/form-data` for file uploads
-- **Content-Type**: `application/json` for JSON payloads
+### Run Status
 
-### File Uploads
+| Status | Meaning |
+|--------|---------|
+| `queued` | Enqueued for detection; no worker has started |
+| `analyzing` | A worker is actively analyzing the document |
+| `analyzed` | Detection finished; awaiting review |
+| `completed` | Redaction applied; run finished |
+| `failed` | Run failed — see the `error` field |
+| `cancelled` | Cancelled by a user |
 
-```bash
-curl -X POST https://api.nvisy.com/v1/documents/redact \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -F "file=@document.pdf" \
-  -F "detection_types=pii,phi" \
-  -F "confidence_threshold=0.8"
-```
+Poll `GET /workspaces/{workspaceSlug}/runs/{runId}/` or subscribe to
+`GET /workspaces/{workspaceSlug}/runs/{runId}/events` for a server-sent events
+stream.
 
-### JSON Payloads
+## Pipelines and Policies
 
-```bash
-curl -X POST https://api.nvisy.com/v1/webhooks \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://your-app.com/webhooks",
-    "events": ["redaction.completed"]
-  }'
-```
+A **policy** defines what counts as sensitive. A **pipeline** defines how a
+document is processed and which policy applies. Both are workspace resources
+and are reused across runs.
 
-## Response Format
-
-All responses are JSON-encoded with standard HTTP status codes.
-
-### Success Response
-
-```json
-{
-  "document_id": "doc_abc123",
-  "status": "completed",
-  "detections": [...],
-  "created_at": "2024-01-15T10:30:00Z"
-}
-```
-
-### Error Response
-
-```json
-{
-  "error": {
-    "code": "invalid_request",
-    "message": "Missing required parameter: detection_types",
-    "param": "detection_types"
-  }
-}
-```
-
-## HTTP Status Codes
-
-| Code | Description |
-|------|-------------|
-| `200` | Success |
-| `201` | Resource created |
-| `204` | Success with no content |
-| `400` | Bad request - invalid parameters |
-| `401` | Unauthorized - invalid API key |
-| `403` | Forbidden - insufficient permissions |
-| `404` | Not found |
-| `429` | Rate limit exceeded |
-| `500` | Internal server error |
-| `503` | Service unavailable |
-
-## Error Codes
-
-| Code | Description |
-|------|-------------|
-| `invalid_request` | Request has invalid parameters |
-| `invalid_api_key` | API key is invalid or expired |
-| `rate_limit_exceeded` | Too many requests |
-| `file_too_large` | Uploaded file exceeds size limit |
-| `unsupported_file_type` | File type not supported |
-| `processing_failed` | Document processing failed |
-| `insufficient_credits` | Account has insufficient credits |
+Browse the available detection labels and recognizers through
+`GET /catalog/labels/` and `GET /catalog/recognizers/`.
 
 ## Pagination
 
-List endpoints support pagination using `limit` and `offset` parameters:
+List endpoints are cursor-paginated:
 
-```bash
-curl "https://api.nvisy.com/v1/documents?limit=50&offset=0" \
-  -H "Authorization: Bearer YOUR_API_KEY"
-```
+| Parameter | Description |
+|-----------|-------------|
+| `limit` | Maximum items to return |
+| `after` | Cursor pointing at the last item of the previous page |
 
-Response includes pagination metadata:
+Responses contain `items`, `nextCursor`, and `total`. Continue while
+`nextCursor` is present.
+
+## Errors
+
+Errors return a JSON body alongside the HTTP status code:
 
 ```json
 {
-  "data": [...],
-  "pagination": {
-    "total": 150,
-    "limit": 50,
-    "offset": 0,
-    "has_more": true
-  }
+  "name": "NotFound",
+  "message": "Workspace not found",
+  "resource": "workspace",
+  "suggestion": "Verify the workspace slug"
 }
 ```
 
-## Idempotency
+| Status | Meaning |
+|--------|---------|
+| `400` | Malformed request or failed validation |
+| `401` | Missing or invalid token |
+| `403` | Authenticated, but not permitted |
+| `404` | Resource does not exist |
+| `429` | Rate limit exceeded |
+| `5xx` | Server error — safe to retry with backoff |
 
-POST requests support idempotency using the `Idempotency-Key` header:
+## Audit Export
 
-```bash
-curl -X POST https://api.nvisy.com/v1/documents/redact \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Idempotency-Key: unique-request-id" \
-  -F "file=@document.pdf"
+Every run's audit can be exported for long-term archiving:
+
 ```
-
-The same key within 24 hours will return the cached response.
+GET /workspaces/{workspaceSlug}/runs/{runId}/audit/json
+GET /workspaces/{workspaceSlug}/runs/{runId}/audit/csv
+```
 
 ## Webhooks
 
-Receive real-time notifications for events:
-
-```bash
-curl -X POST https://api.nvisy.com/v1/webhooks \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://your-app.com/webhooks/nvisy",
-    "events": ["redaction.completed", "redaction.failed"]
-  }'
-```
-
-### Webhook Events
-
-- `redaction.completed` - Document redaction finished
-- `redaction.failed` - Document redaction failed
-- `document.uploaded` - Document uploaded
-- `document.deleted` - Document deleted
-
-### Webhook Signature Verification
-
-Verify webhook authenticity using the `X-Nvisy-Signature` header:
-
-```typescript
-import crypto from 'crypto';
-
-function verifyWebhook(payload, signature, secret) {
-  const hmac = crypto.createHmac('sha256', secret);
-  const digest = hmac.update(payload).digest('hex');
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(digest)
-  );
-}
-```
-
-## Versioning
-
-The API is versioned via the URL path. The current version is `v1`.
-
-```
-https://api.nvisy.com/v1/documents/redact
-```
-
-We maintain backward compatibility within a version. Breaking changes will be introduced in new versions.
+Register endpoints under `/workspaces/{workspaceSlug}/webhooks/` to receive
+events as runs progress. Use the `test` endpoint to verify delivery before
+relying on it.
 
 ## SDKs
 
-Use official SDKs for easier integration:
-
-<CardGroup cols={2}>
-  <Card title="TypeScript SDK" icon="js" href="/sdks/typescript/quickstart">
-    Node.js and browser support with full TypeScript types
+<CardGroup cols={3}>
+  <Card title="TypeScript" icon="js" href="/sdks/typescript/quickstart">
+    Full API coverage
   </Card>
-  <Card title="Python SDK" icon="python" href="/sdks/python/quickstart">
-    Server-side Python applications
+  <Card title="Python" icon="python" href="/sdks/python/quickstart">
+    HTTP client
   </Card>
-</CardGroup>
-
-## OpenAPI Specification
-
-<Card title="OpenAPI Spec" icon="file-code" href="/api-reference/openapi.json">
-  View the complete OpenAPI 3.0 specification
-</Card>
-
-## Support
-
-<CardGroup cols={2}>
-  <Card title="Documentation" icon="book" href="/quickstart">
-    View guides and tutorials
-  </Card>
-  <Card title="GitHub" icon="github" href="https://github.com/nvisycom">
-    Report issues or contribute
+  <Card title="Rust" icon="rust" href="/sdks/rust/quickstart">
+    HTTP client
   </Card>
 </CardGroup>

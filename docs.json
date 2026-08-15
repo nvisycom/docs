@@ -1,6 +1,6 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "willow",
+  "theme": "sequoia",
   "name": "Nvisy",
   "colors": {
     "primary": "#2563EB",
@@ -8,7 +8,6 @@
     "dark": "#1E40AF"
   },
   "favicon": "/images/nvisy.png",
-  "openapi": "/api-reference/openapi.json",
   "navigation": {
     "tabs": [
       {
@@ -48,6 +47,13 @@
           {
             "group": "API Reference",
             "pages": ["api-reference/introduction"]
+          },
+          {
+            "group": "Endpoints",
+            "openapi": {
+              "source": "/api-reference/openapi.json",
+              "directory": "api-reference"
+            }
           }
         ]
       },
@@ -61,6 +67,10 @@
           {
             "group": "Python",
             "pages": ["sdks/python/quickstart", "sdks/python/api-reference", "sdks/python/examples"]
+          },
+          {
+            "group": "Rust",
+            "pages": ["sdks/rust/quickstart", "sdks/rust/api-reference", "sdks/rust/examples"]
           }
         ]
       }

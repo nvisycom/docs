@@ -1,0 +1,102 @@
+---
+title: "Quick Start"
+description: "Install and get started with the Rust SDK in minutes"
+---
+
+<Warning>
+  The Rust SDK is in early development. It currently covers client construction
+  and health monitoring; redaction services are not yet exposed. Pin an exact
+  version if you depend on it in production.
+</Warning>
+
+## Installation
+
+Add the SDK and an async runtime to your `Cargo.toml`:
+
+```toml
+[dependencies]
+nvisy-sdk = "0.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+<Card title="Crates.io" icon="rust" href="https://crates.io/crates/nvisy-sdk">
+  View the crate on crates.io
+</Card>
+
+## Requirements
+
+- Rust 1.85 or later (2024 edition)
+- An async runtime — examples use [Tokio](https://tokio.rs)
+- An API token from your workspace settings
+
+## Your First Request
+
+Create a client and check the service health:
+
+```rust
+use nvisy_sdk::service::MonitorService;
+use nvisy_sdk::{Nvisy, Result};
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let client = Nvisy::with_api_key("your-api-token")?;
+
+    let health = client.health(None).await?;
+    println!("Status: {:?}", health.status);
+
+    Ok(())
+}
+```
+
+## Configuration
+
+For anything beyond the defaults, use the builder:
+
+```rust
+use std::time::Duration;
+
+use nvisy_sdk::{Nvisy, Result};
+
+fn example() -> Result<()> {
+    let client = Nvisy::builder()
+        .with_api_key("your-api-token")           // Required
+        .with_base_url("https://api.nvisy.com")   // Optional
+        .with_user_agent("MyApp/1.0.0")           // Optional
+        .with_timeout(Duration::from_secs(30))    // Optional
+        .with_max_retries(3u32)                   // Optional
+        .build()?;
+
+    Ok(())
+}
+```
+
+<Tip>
+  Read the token from the environment rather than hardcoding it:
+  `std::env::var("NVISY_API_KEY")`.
+</Tip>
+
+## Cargo Features
+
+| Feature | Default | Description |
+|---------|---------|-------------|
+| `rustls-tls` | Yes | Use rustls for HTTPS |
+| `native-tls` | No | Use platform-native TLS (mutually exclusive with `rustls-tls`) |
+| `tracing` | No | Emit [tracing](https://docs.rs/tracing) spans and events for HTTP requests and client lifecycle |
+
+To swap the TLS backend, disable default features:
+
+```toml
+[dependencies]
+nvisy-sdk = { version = "0.1", default-features = false, features = ["native-tls"] }
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="code" href="/sdks/rust/api-reference">
+    Explore the client, services, and models
+  </Card>
+  <Card title="Examples" icon="lightbulb" href="/sdks/rust/examples">
+    Common patterns and error handling
+  </Card>
+</CardGroup>

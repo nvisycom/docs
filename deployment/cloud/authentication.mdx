@@ -1,324 +1,158 @@
 ---
 title: "Authentication"
-description: "Authenticate with the Nvisy cloud API"
+description: "Authenticating with the Nvisy API"
 ---
 
-## API Keys
+Every API request authenticates with a bearer token:
 
-All Nvisy cloud API requests require authentication using API keys.
+```bash
+curl https://api.nvisy.com/workspaces/ \
+  -H "Authorization: Bearer $NVISY_API_TOKEN"
+```
 
-## Getting Your API Key
+## Creating a Token
 
 <Steps>
-  <Step title="Sign Up">
-    Create an account at [nvisy.com](https://nvisy.com)
+  <Step title="Open your account settings">
+    Navigate to **API Tokens**.
   </Step>
-  <Step title="Access Dashboard">
-    Navigate to your dashboard after logging in
+  <Step title="Create a token">
+    Give it a display name describing where it will be used, and optionally an
+    expiry.
   </Step>
-  <Step title="Generate API Key">
-    Go to Settings → API Keys → Generate New Key
-  </Step>
-  <Step title="Copy and Secure">
-    Copy the API key and store it securely (it won't be shown again)
+  <Step title="Store it immediately">
+    The token value is shown once and cannot be retrieved afterwards.
   </Step>
 </Steps>
 
-## Using API Keys
+Tokens can also be managed through the API:
 
-### With cURL
-
-Include the API key in the `Authorization` header:
-
-```bash
-curl https://api.nvisy.com/v1/documents/redact \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -F "file=@document.pdf" \
-  -F "detection_types=pii,phi"
 ```
-
-### With TypeScript SDK
+GET    /api-tokens/
+POST   /api-tokens/
+GET    /api-tokens/{tokenId}/
+PATCH  /api-tokens/{tokenId}/
+DELETE /api-tokens/{tokenId}/
+```
 
 ```typescript
-import { NvisyClient } from '@nvisy/sdk';
-
-const nvisy = new NvisyClient({
-  apiKey: process.env.NVISY_API_KEY
+const created = await client.apiTokens.createApiToken({
+  displayName: "ci-pipeline",
+  expiresIn: 2592000, // seconds
 });
+
+console.log(created.token); // shown only once
 ```
 
-### With Python SDK
+<Warning>
+  `createApiToken` is the only response that contains the token value. If it is
+  lost, revoke the token and create a new one.
+</Warning>
 
-```python
-from nvisy import NvisyClient
-import os
+## Token Properties
 
-client = NvisyClient(
-    api_key=os.getenv('NVISY_API_KEY')
-)
+| Field | Description |
+|-------|-------------|
+| `id` | Token identifier, used to revoke or update it |
+| `displayName` | Human-readable label |
+| `sessionType` | How the token is used — `web`, `api`, or `cli` |
+| `issuedAt` | When it was created |
+| `expiredAt` | When it expires, if an expiry was set |
+| `lastUsedAt` | When it was last seen |
+| `current` | Whether it is the token making this request |
+
+<Tip>
+  `lastUsedAt` is the quickest way to find tokens that are no longer in use and
+  can safely be revoked.
+</Tip>
+
+## Storing Tokens
+
+Read tokens from the environment rather than embedding them in source:
+
+```bash
+export NVISY_API_TOKEN="..."
 ```
-
-## Environment Variables
-
-Store API keys in environment variables:
 
 <CodeGroup>
 
-```bash .env
-NVISY_API_KEY=nvsy_live_abc123...
-NVISY_ENVIRONMENT=production
+```typescript TypeScript
+const client = new Nvisy({ apiToken: process.env.NVISY_API_TOKEN! });
 ```
 
-```bash Shell
-export NVISY_API_KEY="nvsy_live_abc123..."
-export NVISY_ENVIRONMENT="production"
+```python Python
+import os
+
+client = Client({"api_key": os.environ["NVISY_API_TOKEN"]})
 ```
 
-```yaml Docker Compose
-services:
-  app:
-    environment:
-      - NVISY_API_KEY=${NVISY_API_KEY}
-```
-
-```yaml Kubernetes
-apiVersion: v1
-kind: Secret
-metadata:
-  name: nvisy-credentials
-type: Opaque
-stringData:
-  api-key: nvsy_live_abc123...
+```rust Rust
+let api_key = std::env::var("NVISY_API_TOKEN")?;
+let client = Nvisy::with_api_key(&api_key)?;
 ```
 
 </CodeGroup>
 
 <Warning>
-  Never commit API keys to version control. Use environment variables or secret management systems.
+  Never commit tokens to version control. Use environment variables or a secret
+  manager, and prefer short expiries for automated clients.
 </Warning>
 
-## API Key Types
+## Revoking a Token
 
-### Test Keys
-
-- Prefix: `nvsy_test_`
-- Use in development and testing
-- No charges applied
-- Limited to 100 requests/day
-
-### Live Keys
-
-- Prefix: `nvsy_live_`
-- Use in production
-- Usage is charged according to your plan
-- Higher rate limits
-
-## Key Management
-
-### Rotation
-
-Rotate API keys regularly for security:
-
-1. Generate new API key
-2. Update applications with new key
-3. Verify new key works
-4. Delete old key
-
-### Multiple Keys
-
-Use separate keys for different environments:
-
-- **Development**: `nvsy_test_dev_...`
-- **Staging**: `nvsy_test_staging_...`
-- **Production**: `nvsy_live_prod_...`
-
-### Permissions
-
-Configure key permissions (Enterprise plan):
-
-```json
-{
-  "key_id": "key_abc123",
-  "permissions": [
-    "documents:read",
-    "documents:redact",
-    "webhooks:create"
-  ],
-  "rate_limit": 100,
-  "expires_at": "2025-12-31"
-}
-```
-
-## Security Best Practices
-
-### 1. Use Environment Variables
+Revocation takes effect immediately:
 
 ```typescript
-// ✓ Good
-const apiKey = process.env.NVISY_API_KEY;
-
-// ✗ Bad
-const apiKey = 'nvsy_live_abc123...';
+await client.apiTokens.revokeApiToken(tokenId);
 ```
 
-### 2. Restrict API Keys
+To rotate without downtime, create the replacement first, deploy it, then
+revoke the old token once `lastUsedAt` stops advancing.
 
-- Use minimal required permissions
-- Set expiration dates
-- Rotate keys regularly
-- Use different keys per environment
+## Session Authentication
 
-### 3. Secure Storage
+Interactive clients authenticate with credentials instead, receiving a token in
+return:
 
-Use secret management systems:
-
-<Tabs>
-  <Tab title="AWS Secrets Manager">
-    ```typescript
-    import { SecretsManager } from '@aws-sdk/client-secrets-manager';
-    
-    const client = new SecretsManager({ region: 'us-east-1' });
-    const response = await client.getSecretValue({
-      SecretId: 'nvisy-api-key'
-    });
-    
-    const apiKey = response.SecretString;
-    ```
-  </Tab>
-  
-  <Tab title="HashiCorp Vault">
-    ```typescript
-    import vault from 'node-vault';
-    
-    const client = vault({
-      endpoint: 'http://vault:8200',
-      token: process.env.VAULT_TOKEN
-    });
-    
-    const { data } = await client.read('secret/nvisy');
-    const apiKey = data.api_key;
-    ```
-  </Tab>
-  
-  <Tab title="Azure Key Vault">
-    ```typescript
-    import { SecretClient } from '@azure/keyvault-secrets';
-    import { DefaultAzureCredential } from '@azure/identity';
-    
-    const client = new SecretClient(
-      'https://my-vault.vault.azure.net',
-      new DefaultAzureCredential()
-    );
-    
-    const secret = await client.getSecret('nvisy-api-key');
-    const apiKey = secret.value;
-    ```
-  </Tab>
-</Tabs>
-
-### 4. Monitor Usage
-
-Track API key usage in the dashboard:
-- Request volume
-- Error rates
-- Unusual patterns
-- Geographic distribution
-
-## Rate Limits
-
-Rate limits are enforced per API key:
-
-| Plan | Requests/Second | Daily Limit |
-|------|----------------|-------------|
-| Free | 10 | 100 |
-| Starter | 50 | 10,000 |
-| Pro | 200 | 100,000 |
-| Enterprise | Custom | Custom |
-
-### Rate Limit Headers
-
-Response headers indicate rate limit status:
-
-```http
-X-RateLimit-Limit: 50
-X-RateLimit-Remaining: 45
-X-RateLimit-Reset: 1640995200
 ```
-
-### Handling Rate Limits
+POST /auth/login/
+POST /auth/signup/
+POST /auth/logout/
+```
 
 ```typescript
-import { RateLimitError } from '@nvisy/sdk';
+const session = await client.auth.loginAccount({
+  identifier: "user@example.com",
+  password: "...",
+  rememberMe: true,
+});
 
-try {
-  const result = await nvisy.documents.redact({
-    file: './document.pdf',
-    detectionTypes: ['pii']
-  });
-} catch (error) {
-  if (error instanceof RateLimitError) {
-    const retryAfter = error.retryAfter;
-    console.log(`Rate limited. Retry after ${retryAfter} seconds`);
-    
-    // Wait and retry
-    await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
-    // Retry request...
-  }
-}
+console.log(session.apiToken, session.expiresAt);
 ```
 
-## Troubleshooting
+<Note>
+  `identifier` accepts either a username or an email address. Prefer API tokens
+  for programmatic access — session tokens are scoped to interactive use and
+  expire sooner.
+</Note>
 
-### Invalid API Key
+## Errors
 
-```json
-{
-  "error": {
-    "code": "invalid_api_key",
-    "message": "The API key provided is invalid"
-  }
-}
-```
+| Status | Meaning |
+|--------|---------|
+| `401` | Missing, malformed, expired, or revoked token |
+| `403` | Valid token, but not permitted for this resource |
 
-**Solutions:**
-- Verify key is correct
-- Check for extra spaces or characters
-- Ensure key hasn't been deleted
-- Verify using the correct environment
-
-### Expired API Key
-
-```json
-{
-  "error": {
-    "code": "api_key_expired",
-    "message": "The API key has expired"
-  }
-}
-```
-
-**Solution:** Generate a new API key
-
-### Insufficient Permissions
-
-```json
-{
-  "error": {
-    "code": "insufficient_permissions",
-    "message": "API key does not have required permissions"
-  }
-}
-```
-
-**Solution:** Use a key with appropriate permissions or request access
+A `403` on a workspace resource usually means the account is not a member of
+that workspace rather than that the token is wrong.
 
 ## Next Steps
 
 <CardGroup cols={2}>
-  <Card title="Getting Started" icon="rocket" href="/deployment/cloud/getting-started">
-    Start using Nvisy cloud
+  <Card title="Getting Started" icon="cloud" href="/deployment/cloud/getting-started">
+    Set up a cloud workspace
   </Card>
-  <Card title="Quick Start" icon="code" href="/quickstart">
-    Your first redaction
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Token and auth endpoints
   </Card>
 </CardGroup>

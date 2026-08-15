@@ -1,203 +1,182 @@
 ---
 title: "Redaction Workflow"
-description: "Understand the complete document redaction workflow in Nvisy"
+description: "How detection and redaction fit together in Nvisy"
 ---
 
-## Overview
+Redaction in Nvisy is deliberately two-phase. A run first **analyzes** a
+document and records what it found; nothing is modified until you **apply**
+redactions. That separation is what makes the process reviewable and
+auditable.
 
-Nvisy's redaction workflow is designed to be simple, secure, and compliant. The four-step process ensures sensitive information is accurately identified and redacted while maintaining complete audit trails.
-
-## Workflow Steps
+## The Phases
 
 <Steps>
   <Step title="Upload">
-    Upload documents in 50+ supported formats through API, SDK, or web interface
+    Add a file to a workspace. It is stored with its metadata and versioned.
   </Step>
-  <Step title="AI Analysis">
-    Advanced AI scans for PII, PHI, financial data, and custom patterns
+  <Step title="Analyze">
+    Start a run against a pipeline. Recognition produces entities, each with a
+    label, confidence, and location.
   </Step>
-  <Step title="Review & Approve">
-    Preview detected items with confidence scores before finalizing
+  <Step title="Review">
+    Inspect the run's audit. Accept the policy's default treatment, or override
+    individual entities.
   </Step>
-  <Step title="Download">
-    Receive redacted documents with complete audit trails
+  <Step title="Redact">
+    Apply redactions. The engine writes a new output file and finalizes the
+    audit.
   </Step>
 </Steps>
 
-## Detailed Process
+## Run Status
 
-### 1. Document Upload
+A run's `status` tells you which phase it is in:
 
-Upload documents through multiple channels:
+| Status | Meaning |
+|--------|---------|
+| `queued` | Enqueued for detection; no worker has started yet |
+| `analyzing` | A worker is actively analyzing the document |
+| `analyzed` | Detection finished; awaiting review |
+| `completed` | Redaction applied; run finished |
+| `failed` | Run failed — see the run's `error` field |
+| `cancelled` | Cancelled by a user |
 
-- **REST API** - Direct HTTP uploads
-- **SDKs** - JavaScript/TypeScript or Python
-- **Web Interface** - Browser-based uploads
-- **Batch Processing** - Multiple documents at once
+<Note>
+  A run stops at `analyzed` and stays there. It only reaches `completed` after
+  redaction is explicitly applied, so an unreviewed document is never
+  silently modified.
+</Note>
 
-### 2. AI-Powered Detection
+Poll the run, or subscribe to its event stream for live progress:
 
-Our AI engine analyzes documents for sensitive information:
+```
+GET /workspaces/{workspaceSlug}/runs/{runId}/
+GET /workspaces/{workspaceSlug}/runs/{runId}/events
+```
 
-- **PII Detection** - Names, addresses, SSN, phone numbers, email addresses
-- **PHI Detection** - Medical record numbers, diagnoses, prescriptions, patient data
-- **Financial Detection** - Credit card numbers, bank accounts, tax IDs
-- **Custom Patterns** - Organization-specific sensitive data
+## Pipelines and Policies
 
-Each detection includes:
-- **Confidence score** (0-1) indicating certainty
-- **Location** (page, coordinates) in the document
-- **Type** classification
-- **Context** surrounding text
+A **pipeline** carries the detection and governance intent: a default scope and
+the policies to apply. A **policy** defines how recognized entities are treated.
+Both are workspace resources, created once and reused across runs.
 
-### 3. Review Process
+Recognition itself is server-wide — the built-in pattern set plus the
+recognizers available in the catalog:
 
-Before finalization, review detected items:
+```
+GET /catalog/labels/
+GET /catalog/recognizers/
+```
+
+## The Audit
+
+`GET /workspaces/{workspaceSlug}/runs/{runId}/detections/` returns the run's
+audit, which has three parts:
+
+| Field | Description |
+|-------|-------------|
+| `body` | The main document body's entity group |
+| `parts` | One entry per container part, keyed by its part ID |
+| `context` | Recognition facts — languages, countries, OCR mode, correlation ID |
+
+Container formats expose their internal parts. A DOCX, for example, keys
+embedded media by its zip entry name, such as `word/media/image1.png`, so an
+image inside a document is analyzed in its own right.
+
+### Entities
+
+Each entity group is tagged by modality — `text`, `image`, `audio`, or
+`tabular` — and holds records with a consistent shape:
+
+| Field | Description |
+|-------|-------------|
+| `label` | What was recognized |
+| `confidence` | Recognition confidence |
+| `location` | Where it sits, in modality-native coordinates |
+| `language` | Detected language, where applicable |
+| `coref` | Coreference link to related mentions |
+| `audit` | Provenance events for this entity |
+
+Alongside each entity is an optional `review` — a reviewer-supplied override.
+When absent, the matching policy rule applies.
+
+## Redaction Operators
+
+What actually happens to an entity depends on its modality. A single policy
+rule can name an operator per modality:
+
+<Tabs>
+  <Tab title="Text">
+    `erase`, `keep`, `mask`, `replace`, `hash`, `hmac_hash`, `fake`,
+    `pseudonymize`, `encrypt`, `truncate`, `clamp`, `generalize_date`
+  </Tab>
+  <Tab title="Image">
+    `erase`, `keep`, `blur`, `pixelate`, `blackbox`
+  </Tab>
+  <Tab title="Audio">
+    `erase`, `keep`, `silence`, `beep`
+  </Tab>
+  <Tab title="Tabular">
+    `cell`, `drop_row`, `drop_column`
+  </Tab>
+</Tabs>
+
+<Tip>
+  `keep` is an operator like any other — it records that an entity was
+  recognized and deliberately left intact, which is often exactly what an
+  auditor needs to see.
+</Tip>
+
+Reversible operators such as `pseudonymize` and `encrypt` resolve against the
+per-policy vault and key provider, so the policy that authorized an override
+also governs how it can be undone.
+
+## Scope
+
+A run's scope carries per-document recognition settings — languages,
+jurisdictions, and OCR mode. Pipelines supply a default scope; a run can
+override it:
 
 ```json
 {
-  "detections": [
-    {
-      "id": "det_123",
-      "type": "ssn",
-      "confidence": 0.95,
-      "text": "XXX-XX-XXXX",
-      "page": 1,
-      "coordinates": {"x": 100, "y": 200}
-    }
-  ]
+  "fileId": "...",
+  "scope": {
+    "languages": ["en"],
+    "ocrMode": { "kind": "force", "dpi": 300 }
+  }
 }
 ```
 
-Options during review:
-- **Approve** - Confirm redaction
-- **Reject** - Keep original text
-- **Adjust** - Modify redaction area
-- **Set threshold** - Filter by confidence score
+OCR modes are `auto`, `force`, and `never`.
 
-### 4. Redaction Styles
+<Warning>
+  `auto` is intended to extract the text layer and render only pages that lack
+  one, but the text-layer parser that drives that decision is not in place yet
+  — today only `force` actually renders.
+</Warning>
 
-Choose how sensitive information is redacted:
+## Exporting the Audit
 
-<CardGroup cols={3}>
-  <Card title="Black Box" icon="square">
-    Replace with solid black rectangles (default)
-  </Card>
-  <Card title="Blur" icon="eye-slash">
-    Apply blur effect over sensitive areas
-  </Card>
-  <Card title="Pixelate" icon="grid">
-    Pixelate sensitive information
-  </Card>
-</CardGroup>
+Once a run completes, export its audit for archiving:
 
-### 5. Download & Audit
-
-Receive redacted documents with:
-- **Preserved formatting** - Original document structure maintained
-- **Audit trail** - Complete record of all actions
-- **Metadata** - Processing details and timestamps
-- **Compliance reports** - For regulatory requirements
-
-## Batch Processing
-
-Process multiple documents efficiently:
-
-```typescript
-const results = await nvisy.documents.batchRedact({
-  files: ['doc1.pdf', 'doc2.docx', 'doc3.xlsx'],
-  detectionTypes: ['pii', 'phi'],
-  parallel: true,
-  maxConcurrent: 5
-});
 ```
-
-Benefits:
-- **Parallel processing** - Handle multiple documents simultaneously
-- **Progress tracking** - Monitor batch status in real-time
-- **Error handling** - Individual document failures don't stop the batch
-- **Consolidated reporting** - Single report for all documents
-
-## Audit Trails
-
-Every redaction includes a complete audit trail:
-
-```json
-{
-  "audit_trail": [
-    {
-      "timestamp": "2024-01-15T10:30:00Z",
-      "action": "document_uploaded",
-      "user": "user@example.com"
-    },
-    {
-      "timestamp": "2024-01-15T10:30:15Z",
-      "action": "analysis_completed",
-      "detections_found": 42
-    },
-    {
-      "timestamp": "2024-01-15T10:32:00Z",
-      "action": "redaction_approved",
-      "user": "user@example.com"
-    },
-    {
-      "timestamp": "2024-01-15T10:32:05Z",
-      "action": "redacted_document_downloaded",
-      "user": "user@example.com"
-    }
-  ]
-}
+GET /workspaces/{workspaceSlug}/runs/{runId}/audit/json
+GET /workspaces/{workspaceSlug}/runs/{runId}/audit/csv
 ```
-
-## Performance
-
-<CardGroup cols={3}>
-  <Card title="99.9% Accuracy" icon="bullseye">
-    Industry-leading detection accuracy across all data types
-  </Card>
-  <Card title="< 60 Seconds" icon="clock">
-    Average processing time for standard documents
-  </Card>
-  <Card title="50+ Formats" icon="file">
-    Comprehensive file format support
-  </Card>
-</CardGroup>
-
-## Best Practices
-
-### Setting Confidence Thresholds
-
-- **High precision (0.9-1.0)** - Fewer false positives, may miss some items
-- **Balanced (0.8-0.9)** - Recommended for most use cases
-- **High recall (0.6-0.8)** - Catch more items, may include false positives
-
-### Review Process
-
-1. **Always review** high-value or legally sensitive documents
-2. **Spot check** batch processed documents
-3. **Adjust thresholds** based on your needs
-4. **Use custom patterns** for organization-specific data
-
-### Compliance
-
-- **Maintain audit trails** for regulatory requirements
-- **Set retention policies** for processed documents
-- **Use webhooks** for automated compliance workflows
-- **Export reports** for audit purposes
 
 ## Next Steps
 
 <CardGroup cols={2}>
-  <Card title="AI Detection" icon="brain" href="/features/ai-detection">
-    Learn about detection algorithms and accuracy
-  </Card>
-  <Card title="Supported Formats" icon="file" href="/features/supported-formats">
-    View all supported file formats
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Run the workflow end to end
   </Card>
   <Card title="Audit Trails" icon="shield-check" href="/features/audit-trails">
-    Understand audit trail capabilities
+    What the audit records
   </Card>
   <Card title="API Reference" icon="code" href="/api-reference/introduction">
-    Integrate redaction into your workflow
+    Every endpoint
+  </Card>
+  <Card title="TypeScript SDK" icon="js" href="/sdks/typescript/quickstart">
+    Full API coverage
   </Card>
 </CardGroup>

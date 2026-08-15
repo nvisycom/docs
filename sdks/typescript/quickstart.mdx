@@ -29,141 +29,95 @@ pnpm add @nvisy/sdk
 
 ## Requirements
 
-- **Node.js** 16 or higher (for server-side)
-- **Modern browser** with ES2020 support (for client-side)
-- **TypeScript** 4.5+ (optional, for type support)
+- Node.js 18 or later (or any ES2022+ runtime with `fetch`)
+- An API token — create one under **API Tokens** in your account settings
 
-## Initialize the Client
+## Your First Request
+
+Construct a client with your API token and read your account:
 
 ```typescript
-import { NvisyClient } from '@nvisy/sdk';
+import { Nvisy } from "@nvisy/sdk";
 
-const nvisy = new NvisyClient({
-  apiKey: process.env.NVISY_API_KEY,
-  // Optional: specify environment
-  environment: 'production', // or 'staging'
-  // Optional: custom base URL for self-hosted instances
-  baseUrl: 'https://api.nvisy.com'
+const client = new Nvisy({ apiToken: process.env.NVISY_API_TOKEN! });
+
+const account = await client.account.getAccount();
+const workspaces = await client.workspaces.listWorkspaces();
+
+console.log(account.username, workspaces.items.length);
+```
+
+<Tip>
+  Everything except authentication and account management is scoped to a
+  workspace, identified by its slug. List your workspaces first to find it.
+</Tip>
+
+## Configuration
+
+The constructor accepts additional options:
+
+```typescript
+const client = new Nvisy({
+  apiToken: "your-api-token",       // Required
+  baseUrl: "https://api.nvisy.com", // Optional
+  userAgent: "MyApp/1.0.0",         // Optional
+  withLogging: true,                // Optional — debug logging
+  headers: {                        // Optional
+    "X-Custom-Header": "value",
+  },
 });
 ```
 
-<Warning>
-  Keep your API key secure. Never commit it to version control or expose it in client-side code. Use environment variables.
-</Warning>
+| Option | Type | Required | Default |
+|--------|------|----------|---------|
+| `apiToken` | `string` | Yes | — |
+| `baseUrl` | `string` | No | `https://api.nvisy.com` |
+| `userAgent` | `string` | No | `@nvisy/sdk v.<version>` |
+| `withLogging` | `boolean` | No | `false` |
+| `headers` | `Record<string, string>` | No | — |
 
-## Your First Redaction
+## The Redaction Workflow
 
-Redact a document in 3 lines of code:
+Redaction is a two-phase process: a run first **detects** sensitive data, then
+you **apply** redactions after reviewing the findings.
 
-```typescript
-const result = await nvisy.documents.redact({
-  file: './sensitive-document.pdf',
-  detectionTypes: ['pii', 'phi', 'financial']
-});
+<Steps>
+  <Step title="Upload a file">
+    ```typescript
+    const [file] = await client.files.uploadFiles(workspaceSlug, blob);
+    ```
+  </Step>
+  <Step title="Start a run against a pipeline">
+    ```typescript
+    const run = await client.runs.createRun(workspaceSlug, pipelineSlug, {
+      fileId: file.id,
+    });
+    ```
+  </Step>
+  <Step title="Review detections">
+    ```typescript
+    const audit = await client.runs.getDetections(workspaceSlug, run.id);
+    ```
+  </Step>
+  <Step title="Apply redactions">
+    ```typescript
+    const redacted = await client.runs.redact(workspaceSlug, run.id);
+    ```
+  </Step>
+</Steps>
 
-console.log(`Found ${result.detections.length} sensitive items`);
-await result.downloadRedacted('./redacted.pdf');
-```
-
-## Constructor Options
-
-```typescript
-interface NvisyClientOptions {
-  apiKey: string;              // Required: Your API key
-  environment?: 'production' | 'staging';  // Default: 'production'
-  baseUrl?: string;            // Custom API base URL
-  timeout?: number;            // Request timeout in ms (default: 30000)
-  maxRetries?: number;         // Max retry attempts (default: 3)
-}
-```
-
-## Basic Usage Patterns
-
-### Redact with Custom Confidence
-
-```typescript
-const result = await nvisy.documents.redact({
-  file: './document.pdf',
-  detectionTypes: ['pii'],
-  confidenceThreshold: 0.9  // Higher confidence = fewer false positives
-});
-```
-
-### Redact with Custom Patterns
-
-```typescript
-const result = await nvisy.documents.redact({
-  file: './document.pdf',
-  detectionTypes: ['custom'],
-  customPatterns: [
-    {
-      name: 'employee_id',
-      pattern: /EMP-\d{6}/g,
-      description: 'Employee ID format: EMP-######'
-    }
-  ]
-});
-```
-
-### Upload and Analyze Without Redacting
-
-```typescript
-const analysis = await nvisy.detections.analyze({
-  file: './document.pdf',
-  detectionTypes: ['pii', 'phi']
-});
-
-analysis.detections.forEach(detection => {
-  console.log(`Found ${detection.type} with ${detection.confidence} confidence`);
-});
-```
-
-## Error Handling
-
-```typescript
-import { NvisyError, AuthenticationError, RateLimitError } from '@nvisy/sdk';
-
-try {
-  const result = await nvisy.documents.redact({
-    file: './document.pdf',
-    detectionTypes: ['pii']
-  });
-} catch (error) {
-  if (error instanceof AuthenticationError) {
-    console.error('Invalid API key');
-  } else if (error instanceof RateLimitError) {
-    console.error('Rate limit exceeded. Retry after:', error.retryAfter);
-  } else if (error instanceof NvisyError) {
-    console.error('Nvisy error:', error.message);
-  } else {
-    console.error('Unexpected error:', error);
-  }
-}
-```
-
-## TypeScript Configuration
-
-If using TypeScript, ensure your `tsconfig.json` includes:
-
-```json
-{
-  "compilerOptions": {
-    "target": "ES2020",
-    "module": "commonjs",
-    "lib": ["ES2020"],
-    "esModuleInterop": true,
-    "strict": true
-  }
-}
-```
+<Note>
+  A pipeline defines *how* a document is analyzed, and a policy defines *what*
+  is considered sensitive. Create them once, then reuse across runs.
+</Note>
 
 ## Next Steps
 
 <CardGroup cols={2}>
-  <Card title="API Reference" icon="book" href="/sdks/typescript/api-reference">
-    View complete API documentation
+  <Card title="API Reference" icon="code" href="/sdks/typescript/api-reference">
+    Every service and method
   </Card>
-  <Card title="Examples" icon="code" href="/sdks/typescript/examples">
-    Explore advanced examples
+  <Card title="Examples" icon="lightbulb" href="/sdks/typescript/examples">
+    End-to-end patterns
   </Card>
 </CardGroup>

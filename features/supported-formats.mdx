@@ -1,323 +1,131 @@
 ---
 title: "Supported Formats"
-description: "Comprehensive list of document formats supported by Nvisy"
+description: "File formats Nvisy can analyze and redact"
 ---
 
-## Overview
+Every file belongs to a **modality** — `text`, `tabular`, `image`, or `audio` —
+which determines how it is analyzed and which redaction operators apply.
 
-Nvisy supports 50+ document formats with preserved formatting and structure. All formats undergo the same rigorous AI detection process with industry-leading accuracy.
+## Formats
 
-## Document Formats
-
-### PDF Documents
-
-<Card title="PDF" icon="file-pdf">
-  Full support for PDF documents including:
-  - Text-based PDFs
-  - Scanned documents (with OCR)
-  - Mixed content (text + images)
-  - Encrypted PDFs (with password)
-  - Forms and annotations
-  - Multi-page documents
-</Card>
-
-**Versions Supported**: PDF 1.0 - 2.0 (ISO 32000)
-
-### Microsoft Office
-
-<CardGroup cols={3}>
-  <Card title="Word" icon="file-word">
-    - .doc
-    - .docx
-    - .docm
-    - .dot
-    - .dotx
-  </Card>
-  <Card title="Excel" icon="file-excel">
-    - .xls
-    - .xlsx
-    - .xlsm
-    - .xlt
-    - .xltx
-  </Card>
-  <Card title="PowerPoint" icon="file-powerpoint">
-    - .ppt
-    - .pptx
-    - .pptm
-    - .pot
-    - .potx
-  </Card>
-</CardGroup>
-
-**Features**:
-- Preserve formatting (fonts, colors, styles)
-- Detect in headers, footers, and footnotes
-- Process tables and embedded objects
-- Handle comments and tracked changes
-- Support for macros (analyzed but not executed)
-
-### OpenDocument Formats
-
-<CardGroup cols={3}>
-  <Card title="Text" icon="file-lines">
-    - .odt
-    - .ott
-  </Card>
-  <Card title="Spreadsheet" icon="table">
-    - .ods
-    - .ots
-  </Card>
-  <Card title="Presentation" icon="presentation">
-    - .odp
-    - .otp
-  </Card>
-</CardGroup>
-
-### Plain Text
-
-<Card title="Text Files" icon="file-text">
-  - .txt - Plain text
-  - .rtf - Rich Text Format
-  - .md - Markdown
-  - .csv - Comma-separated values
-  - .tsv - Tab-separated values
-  - .log - Log files
-</Card>
-
-### Images (with OCR)
-
-<CardGroup cols={4}>
-  <Card title="JPEG" icon="image">
-    .jpg, .jpeg
-  </Card>
-  <Card title="PNG" icon="image">
-    .png
-  </Card>
-  <Card title="TIFF" icon="image">
-    .tif, .tiff
-  </Card>
-  <Card title="BMP" icon="image">
-    .bmp
-  </Card>
-</CardGroup>
-
-**OCR Features**:
-- Multi-language text recognition
-- Handwriting detection (basic)
-- Table structure recognition
-- Layout preservation
-
-### Web Formats
-
-<Card title="Web Documents" icon="globe">
-  - .html - HTML documents
-  - .htm - HTML documents
-  - .xml - XML documents
-  - .json - JSON data (text detection only)
-</Card>
-
-### Email Formats
-
-<Card title="Email Files" icon="envelope">
-  - .eml - Email messages
-  - .msg - Outlook messages
-  - .mbox - Mailbox files
-</Card>
-
-**Detection includes**:
-- Email body
-- Subject lines
-- Headers (From, To, CC, BCC)
-- Attachments
-- Embedded images
-
-### Archive Formats
-
-<Card title="Archives" icon="file-zipper">
-  - .zip - ZIP archives
-  - .rar - RAR archives
-  - .7z - 7-Zip archives
-  - .tar - TAR archives
-  - .gz - GZIP archives
-</Card>
-
-**Processing**:
-- Automatically extract and process contents
-- Redact individual files within archives
-- Repackage redacted files
-- Maintain directory structure
-
-## Format-Specific Features
-
-### PDF Handling
-
-```typescript
-const result = await nvisy.documents.redact({
-  file: './document.pdf',
-  pdfOptions: {
-    ocrScannedPages: true,      // Apply OCR to scanned pages
-    preserveHyperlinks: true,   // Keep clickable links
-    flattenForms: false,        // Keep form fields editable
-    removeMetadata: true        // Strip document metadata
-  }
-});
-```
-
-### Excel Handling
-
-```typescript
-const result = await nvisy.documents.redact({
-  file: './spreadsheet.xlsx',
-  excelOptions: {
-    processHiddenSheets: true,  // Include hidden sheets
-    processFormulas: true,      // Detect in formula values
-    preserveFormatting: true,   // Keep cell formatting
-    redactComments: true        // Process cell comments
-  }
-});
-```
-
-### Image OCR
-
-```typescript
-const result = await nvisy.documents.redact({
-  file: './scanned.jpg',
-  ocrOptions: {
-    language: 'eng',            // OCR language (eng, spa, fra, etc.)
-    dpi: 300,                   // Image DPI for processing
-    preprocess: true,           // Image enhancement
-    orientation: 'auto'         // Auto-detect orientation
-  }
-});
-```
-
-## File Size Limits
+<Tabs>
+  <Tab title="Text">
+    | Extension | Notes |
+    |-----------|-------|
+    | `pdf` | Born-digital or scanned; scanned pages go through OCR |
+    | `docx` | Container format — embedded media is analyzed separately |
+    | `rtf` | Rich text |
+    | `txt` | Plain text |
+    | `log` | Plain text |
+    | `html`, `htm` | Markup |
+    | `xml` | Markup |
+    | `json` | Structured text |
+  </Tab>
+  <Tab title="Tabular">
+    | Extension | Notes |
+    |-----------|-------|
+    | `csv` | Delimited rows |
+    | `xlsx` | Container format — sheets analyzed per part |
+  </Tab>
+  <Tab title="Image">
+    | Extension | Notes |
+    |-----------|-------|
+    | `png` | |
+    | `jpg`, `jpeg` | |
+    | `tif`, `tiff` | Multi-page images supported |
+  </Tab>
+  <Tab title="Audio">
+    | Extension | Notes |
+    |-----------|-------|
+    | `wav` | Transcribed, then analyzed |
+  </Tab>
+</Tabs>
 
 <Note>
-  File size limits depend on your deployment configuration and plan.
+  Filtering by extension expands to the whole format's extension set — passing
+  `jpg` also matches `jpeg`, and `tif` also matches `tiff`.
 </Note>
 
-### Default Limits
+## Container Formats
 
-| Format Type | Max Size | Notes |
-|------------|----------|-------|
-| PDF | 100 MB | Larger files available on request |
-| Office Documents | 50 MB | Per file |
-| Images | 25 MB | Per image |
-| Archives | 200 MB | Uncompressed size |
-| Text Files | 10 MB | Per file |
+Formats like `docx` and `xlsx` are containers: they hold parts that may have
+their own modality. An image embedded in a Word document is analyzed as an
+image, in its own right.
 
-### Large File Handling
+The run's audit reflects this. Each container part appears in `parts`, keyed by
+its container-private ID — for a DOCX, that is the zip entry name:
 
-For files exceeding limits:
-- **Streaming upload** - Process without loading entirely into memory
-- **Chunked processing** - Split large files automatically
-- **Batch processing** - Handle multiple files efficiently
-
-```typescript
-const result = await nvisy.documents.redact({
-  file: createReadStream('./large-file.pdf'),
-  streaming: true,
-  chunkSize: 10 * 1024 * 1024  // 10MB chunks
-});
+```json
+{
+  "body": { "modality": "text", "entities": [] },
+  "parts": {
+    "word/media/image1.png": { "modality": "image", "entities": [] }
+  }
+}
 ```
 
-## Format Detection
+This is why a document can produce both text and image findings from a single
+run, each redacted with operators appropriate to its modality.
 
-Nvisy automatically detects file formats:
+## OCR
 
-```typescript
-// Format is detected automatically
-const result = await nvisy.documents.redact({
-  file: './document',  // No extension needed
-  detectionTypes: ['pii']
-});
+Scanned documents have no selectable text layer and must be rendered to images
+before recognition. A run's scope controls this:
 
-console.log(result.format);  // 'application/pdf'
+```json
+{
+  "scope": {
+    "ocrMode": { "kind": "force", "dpi": 300 }
+  }
+}
 ```
 
-### MIME Type Support
-
-Supported MIME types:
-- `application/pdf`
-- `application/msword`
-- `application/vnd.openxmlformats-officedocument.*`
-- `application/vnd.oasis.opendocument.*`
-- `image/jpeg`, `image/png`, `image/tiff`
-- `text/plain`, `text/html`, `text/csv`
-- `message/rfc822` (email)
-
-## Format Conversion
-
-Convert between formats during redaction:
-
-```typescript
-const result = await nvisy.documents.redact({
-  file: './document.docx',
-  detectionTypes: ['pii'],
-  outputFormat: 'pdf'  // Convert to PDF after redaction
-});
-```
-
-**Supported conversions**:
-- Office formats → PDF
-- Images → PDF
-- Text formats → PDF
-- HTML → PDF
-
-## Best Practices
-
-### Choosing Formats
-
-1. **PDF** - Best for sharing redacted documents (universal compatibility)
-2. **Office formats** - Use when further editing is needed
-3. **Images** - Only for scanned documents requiring OCR
-4. **Text** - For simple, unformatted documents
-
-### Optimization Tips
-
-- **Compress PDFs** before upload to reduce processing time
-- **Remove unnecessary pages** before processing
-- **Use text-based PDFs** instead of scanned when possible
-- **Split large documents** into smaller files for faster processing
-
-### Format Limitations
+| Mode | Behavior |
+|------|----------|
+| `auto` | Extract the text layer, render only pages that lack one |
+| `force` | Always render pages to images at the given `dpi` |
+| `never` | Never render; rely on the existing text layer |
 
 <Warning>
-  Some format-specific features may not be preserved:
-  - Embedded videos/audio
-  - 3D objects
-  - Advanced animations
-  - Executable macros
-  - Digital signatures (removed for security)
+  `auto` is the intended default, but the text-layer parser that drives the
+  decision is not in place yet — today only `force` actually renders. Use
+  `force` for scanned documents.
 </Warning>
 
-## Upcoming Formats
+## Filtering Files
 
-Formats in development:
+List endpoints filter by format, modality, or name:
 
-- Adobe InDesign (.indd)
-- AutoCAD (.dwg)
-- Photoshop (.psd)
-- Vector graphics (.svg, .ai)
+```typescript
+const page = await client.files.listFiles(workspaceSlug, {
+  formats: ["pdf", "docx"],
+  modality: ["text"],
+  search: "contract",
+  limit: 50,
+});
+```
 
-<Card title="Request a Format" icon="plus" href="https://github.com/nvisycom">
-  Need support for a specific format? Open an issue on GitHub.
-</Card>
+## File Roles
+
+Each file records the role it plays, which drives retention and whether it is
+user-facing:
+
+| Kind | Description |
+|------|-------------|
+| `original` | Source document, uploaded or imported |
+| `redacted` | Redacted output produced by a pipeline |
+| `audit` | Engine analysis blob; hidden from file lists |
+
+Redacted outputs are linked to their source through `parentId`, forming a
+version chain rather than overwriting the original.
 
 ## Next Steps
 
 <CardGroup cols={2}>
-  <Card title="Quickstart" icon="rocket" href="/quickstart">
-    Start redacting documents
-  </Card>
-  <Card title="AI Detection" icon="brain" href="/features/ai-detection">
-    Learn about detection algorithms
+  <Card title="Redaction Workflow" icon="workflow" href="/features/redaction-workflow">
+    How modality drives redaction
   </Card>
   <Card title="API Reference" icon="code" href="/api-reference/introduction">
-    Integrate format handling
-  </Card>
-  <Card title="TypeScript SDK" icon="js" href="/sdks/typescript">
-    Use format-specific options
+    File endpoints and filters
   </Card>
 </CardGroup>

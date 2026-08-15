@@ -1,422 +1,146 @@
 ---
 title: "Audit Trails"
-description: "Complete audit trails for compliance and governance"
+description: "What Nvisy records about detection, redaction, and workspace activity"
 ---
 
-## Overview
-
-Nvisy provides comprehensive audit trails for every document redaction, ensuring full traceability and compliance with regulatory requirements like GDPR, HIPAA, and SOC 2.
-
-## What's Tracked
-
-Every action is recorded in the audit trail:
+Nvisy records two independent trails:
 
 <CardGroup cols={2}>
-  <Card title="Document Actions" icon="file">
-    - Upload timestamp
-    - File metadata
-    - Processing status
-    - Download events
+  <Card title="Run Audit" icon="file-magnifying-glass">
+    Per-entity provenance — why each entity was recognized and what happened to it
   </Card>
-  <Card title="User Actions" icon="user">
-    - User identity
-    - Action type
-    - Timestamp
-    - IP address
-  </Card>
-  <Card title="Detection Events" icon="magnifying-glass">
-    - Detections found
-    - Confidence scores
-    - Detection methods
-    - Pattern matches
-  </Card>
-  <Card title="Redaction Events" icon="pen">
-    - Items redacted
-    - Items approved/rejected
-    - Redaction style used
-    - Review decisions
+  <Card title="Activity Log" icon="list-timeline">
+    Per-workspace actions — who did what, and when
   </Card>
 </CardGroup>
 
-## Audit Trail Structure
+## Run Audit
 
-Each audit entry contains:
+Every run produces an audit describing what detection found in one document:
 
-```json
-{
-  "id": "audit_abc123",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "action": "redaction_completed",
-  "document_id": "doc_xyz789",
-  "user": {
-    "id": "user_123",
-    "email": "user@example.com",
-    "ip_address": "192.168.1.1"
-  },
-  "details": {
-    "detections_found": 42,
-    "items_redacted": 40,
-    "items_rejected": 2,
-    "confidence_threshold": 0.85,
-    "processing_time_ms": 3500
-  },
-  "metadata": {
-    "api_version": "v1",
-    "sdk_version": "1.2.3",
-    "environment": "production"
-  }
-}
+```
+GET /workspaces/{workspaceSlug}/runs/{runId}/detections/
 ```
 
-## Action Types
+| Field | Description |
+|-------|-------------|
+| `body` | The main document body's entity group |
+| `parts` | One entry per container part, keyed by its part ID |
+| `context` | Recognition facts the entities were scored against |
 
-### Document Lifecycle
+### Context
 
-| Action | Description |
-|--------|-------------|
-| `document_uploaded` | File uploaded to Nvisy |
-| `analysis_started` | AI detection process began |
-| `analysis_completed` | Detection finished |
-| `redaction_approved` | User approved redactions |
-| `redaction_completed` | Redaction process finished |
-| `document_downloaded` | Redacted file downloaded |
-| `document_deleted` | Document removed from system |
+The context travels from analysis through to redaction, so the conditions an
+entity was recognized under are recorded alongside the finding:
 
-### Detection Events
+| Field | Description |
+|-------|-------------|
+| `languages` | Languages considered |
+| `countries` | Jurisdictions considered |
+| `ocrMode` | How pages were rendered for OCR |
+| `correlationId` | Correlates the run across services |
+| `metadata` | Additional recognition metadata |
 
-| Action | Description |
-|--------|-------------|
-| `pii_detected` | PII found in document |
-| `phi_detected` | PHI found in document |
-| `financial_detected` | Financial data found |
-| `custom_pattern_detected` | Custom pattern matched |
-| `detection_reviewed` | User reviewed detection |
-| `detection_approved` | Detection approved for redaction |
-| `detection_rejected` | Detection rejected (false positive) |
+### Entity Provenance
 
-### System Events
+Each recognized entity carries an `audit` — a chain of events explaining how it
+reached its final state. Every event records a `kind`, `confidence`,
+`timestamp`, `source`, `parents`, and a `hash`.
 
-| Action | Description |
-|--------|-------------|
-| `api_key_used` | API request authenticated |
-| `webhook_triggered` | Webhook notification sent |
-| `error_occurred` | Processing error |
-| `retry_attempted` | Automatic retry of failed operation |
+| Kind | Meaning |
+|------|---------|
+| `pattern` | Matched a deterministic pattern |
+| `model` | Recognized by a model |
+| `deduplication` | Merged with an overlapping detection |
+| `conflict` | Competing detections were reconciled |
+| `contested` | Recognizers disagreed |
+| `calibration` | Confidence was calibrated |
+| `refinement` | Boundaries or label were refined |
+| `redaction` | A redaction operator was applied |
 
-## Accessing Audit Trails
+Because events carry `parents`, the trail is a graph rather than a flat list —
+you can trace a final entity back through every merge and reconciliation that
+produced it.
 
-### Via SDK
+<Note>
+  The `hash` on each event makes the chain verifiable: an audit can be checked
+  for tampering without reference to the original document content.
+</Note>
+
+### Reviewer Overrides
+
+Alongside each entity is an optional `review`, recording the reviewer's
+override and the policy authority it draws from. The policy reference is not
+only for the record — it selects which per-policy vault and key provider a
+reversible operator resolves against.
+
+When `review` is absent, the matching policy rule applied unmodified.
+
+## Exporting
+
+Run audits export in two formats for archiving:
+
+```
+GET /workspaces/{workspaceSlug}/runs/{runId}/audit/json
+GET /workspaces/{workspaceSlug}/runs/{runId}/audit/csv
+```
 
 ```typescript
-// Get audit trail for a specific document
-const document = await nvisy.documents.get('doc_abc123');
-
-console.log('Audit Trail:');
-document.auditTrail.forEach(entry => {
-  console.log(`[${entry.timestamp}] ${entry.action}`);
-  console.log(`  User: ${entry.user.email}`);
-  console.log(`  Details:`, entry.details);
-});
+const response = await client.runs.downloadAuditCsv(workspaceSlug, runId);
+await writeFile("./audit.csv", Buffer.from(await response.arrayBuffer()));
 ```
 
-### Via API
+<Tip>
+  JSON preserves the full event graph and nested structure. CSV flattens it for
+  spreadsheet review and GRC tooling — prefer JSON when the provenance chain
+  itself matters.
+</Tip>
 
-```bash
-curl https://api.nvisy.com/v1/documents/doc_abc123/audit-trail \
-  -H "Authorization: Bearer $NVISY_API_KEY"
+## Activity Log
+
+Separately from run audits, each workspace records the actions taken within it:
+
+```
+GET /workspaces/{workspaceSlug}/activities/
 ```
 
-### Filtering Audit Logs
+| Field | Description |
+|-------|-------------|
+| `id` | Activity identifier |
+| `workspaceSlug` | Workspace the action occurred in |
+| `performedBy` | Who performed it |
+| `createdAt` | When it occurred |
+| `payload` | Typed payload, tagged by activity type |
 
-```typescript
-const auditLogs = await nvisy.auditLogs.list({
-  documentId: 'doc_abc123',
-  actions: ['redaction_completed', 'document_downloaded'],
-  userId: 'user_123',
-  startDate: '2024-01-01',
-  endDate: '2024-01-31',
-  limit: 100
-});
-```
+Payloads are typed per subject — files, pipelines, pipeline runs, policies,
+members, invites, connections, and webhooks each carry their own parameters.
 
-## Retention Policies
+<Note>
+  Activity payloads store identifiers and parameters, not rendered sentences.
+  The client localizes the description, so the log stays language-neutral and
+  stable as wording changes.
+</Note>
 
-Configure how long audit trails are retained:
+## Retention
 
-```typescript
-const policy = await nvisy.retentionPolicies.create({
-  auditTrails: {
-    retention: '7-years',     // Keep for 7 years (HIPAA requirement)
-    archiveAfter: '1-year',   // Archive after 1 year
-    deleteAfter: '7-years'    // Delete after 7 years
-  },
-  documents: {
-    retention: '30-days',     // Keep documents for 30 days
-    deleteAfter: '30-days'    // Auto-delete after 30 days
-  }
-});
-```
+Files record their role, which drives retention scope:
 
-### Common Retention Requirements
+| Kind | Description |
+|------|-------------|
+| `original` | Source document, uploaded or imported |
+| `redacted` | Redacted output produced by a pipeline |
+| `audit` | Engine analysis blob, hidden from file lists |
 
-| Regulation | Minimum Retention |
-|------------|------------------|
-| HIPAA | 6 years |
-| GDPR | Varies by purpose |
-| SOC 2 | 1 year minimum |
-| PCI-DSS | 1 year |
-
-## Compliance Reports
-
-Generate compliance reports from audit trails:
-
-```typescript
-const report = await nvisy.reports.generate({
-  type: 'compliance',
-  startDate: '2024-01-01',
-  endDate: '2024-12-31',
-  format: 'pdf',
-  includeAuditTrails: true,
-  groupBy: 'document'
-});
-
-await report.download('./compliance-report-2024.pdf');
-```
-
-### Report Types
-
-<AccordionGroup>
-  <Accordion title="HIPAA Compliance Report" icon="shield-check">
-    - All PHI redactions
-    - User access logs
-    - Document lifecycle events
-    - Breach notification requirements
-  </Accordion>
-  
-  <Accordion title="GDPR Compliance Report" icon="scale-balanced">
-    - PII processing activities
-    - User consent records
-    - Data deletion events
-    - Right to access requests
-  </Accordion>
-  
-  <Accordion title="SOC 2 Audit Report" icon="clipboard-check">
-    - Access control events
-    - Security incidents
-    - System availability metrics
-    - Change management logs
-  </Accordion>
-  
-  <Accordion title="Custom Reports" icon="chart-bar">
-    - Customizable fields
-    - Flexible date ranges
-    - Multiple export formats
-    - Scheduled generation
-  </Accordion>
-</AccordionGroup>
-
-## Immutability
-
-Audit trails are immutable and tamper-proof:
-
-- **Write-once** - Entries cannot be modified after creation
-- **Cryptographically signed** - Each entry includes a signature
-- **Chain verification** - Entries are linked to prevent tampering
-- **Third-party verification** - Export for external audit
-
-### Verification
-
-Verify audit trail integrity:
-
-```typescript
-const verification = await nvisy.auditLogs.verify('doc_abc123');
-
-if (verification.valid) {
-  console.log('✓ Audit trail is valid and unmodified');
-} else {
-  console.error('✗ Audit trail integrity compromised!');
-  console.error('Details:', verification.errors);
-}
-```
-
-## Export Options
-
-Export audit trails in multiple formats:
-
-### JSON Export
-
-```typescript
-const auditTrail = await nvisy.documents.get('doc_abc123');
-const json = JSON.stringify(auditTrail.auditTrail, null, 2);
-
-fs.writeFileSync('audit-trail.json', json);
-```
-
-### CSV Export
-
-```typescript
-const csv = await nvisy.auditLogs.export({
-  documentId: 'doc_abc123',
-  format: 'csv'
-});
-
-fs.writeFileSync('audit-trail.csv', csv);
-```
-
-### PDF Report
-
-```typescript
-const pdf = await nvisy.reports.generate({
-  documentId: 'doc_abc123',
-  type: 'audit-trail',
-  format: 'pdf'
-});
-
-await pdf.download('./audit-trail.pdf');
-```
-
-## Real-time Monitoring
-
-Monitor audit events in real-time using webhooks:
-
-```typescript
-const webhook = await nvisy.webhooks.create({
-  url: 'https://your-app.com/webhooks/audit',
-  events: [
-    'document_uploaded',
-    'redaction_completed',
-    'document_downloaded',
-    'error_occurred'
-  ]
-});
-```
-
-### Webhook Payload
-
-```json
-{
-  "event": "redaction_completed",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "data": {
-    "document_id": "doc_abc123",
-    "user": {
-      "id": "user_123",
-      "email": "user@example.com"
-    },
-    "audit_entry": {
-      "id": "audit_xyz789",
-      "action": "redaction_completed",
-      "details": {...}
-    }
-  }
-}
-```
-
-## Search and Filter
-
-Advanced search capabilities:
-
-```typescript
-const results = await nvisy.auditLogs.search({
-  query: 'redaction_completed',
-  filters: {
-    user: 'user@example.com',
-    dateRange: {
-      start: '2024-01-01',
-      end: '2024-01-31'
-    },
-    documentType: 'pdf',
-    action: ['redaction_completed', 'document_downloaded']
-  },
-  sort: 'timestamp',
-  order: 'desc',
-  limit: 100
-});
-```
-
-## Best Practices
-
-### Comprehensive Logging
-
-1. **Enable all event types** - Log everything by default
-2. **Include context** - Add metadata for easier investigation
-3. **Use webhooks** - Monitor critical events in real-time
-4. **Regular exports** - Export logs periodically for backup
-
-### Security
-
-1. **Restrict access** - Limit who can view audit trails
-2. **Encrypt exports** - Protect exported audit data
-3. **Verify integrity** - Regularly check audit trail validity
-4. **Monitor anomalies** - Alert on unusual patterns
-
-### Compliance
-
-1. **Meet retention requirements** - Configure appropriate retention periods
-2. **Generate reports** - Create compliance reports regularly
-3. **Document processes** - Keep records of audit procedures
-4. **Third-party audits** - Provide audit trails to auditors
-
-## API Integration
-
-### Complete Example
-
-```typescript
-import { NvisyClient } from '@nvisy/sdk';
-
-async function auditWorkflow() {
-  const nvisy = new NvisyClient({
-    apiKey: process.env.NVISY_API_KEY
-  });
-
-  // Redact document
-  const result = await nvisy.documents.redact({
-    file: './document.pdf',
-    detectionTypes: ['pii', 'phi']
-  });
-
-  // Access audit trail
-  console.log('=== Audit Trail ===');
-  result.auditTrail.forEach((entry, i) => {
-    console.log(`\n${i + 1}. ${entry.action}`);
-    console.log(`   Time: ${entry.timestamp}`);
-    console.log(`   User: ${entry.user.email}`);
-    if (entry.details) {
-      console.log(`   Details:`, JSON.stringify(entry.details, null, 2));
-    }
-  });
-
-  // Generate compliance report
-  const report = await nvisy.reports.generate({
-    documentId: result.documentId,
-    type: 'audit-trail',
-    format: 'pdf'
-  });
-
-  await report.download('./audit-report.pdf');
-  console.log('\n✓ Audit report generated');
-
-  // Verify integrity
-  const verification = await nvisy.auditLogs.verify(result.documentId);
-  console.log(`\nAudit trail valid: ${verification.valid}`);
-}
-
-auditWorkflow();
-```
+For deployments where retention is governed internally, see
+[on-premise deployment](/deployment/on-premise/getting-started).
 
 ## Next Steps
 
 <CardGroup cols={2}>
   <Card title="Redaction Workflow" icon="workflow" href="/features/redaction-workflow">
-    Understand the complete workflow
+    Where the audit fits in the run lifecycle
   </Card>
   <Card title="API Reference" icon="code" href="/api-reference/introduction">
-    Explore audit trail endpoints
-  </Card>
-  <Card title="Webhooks" icon="webhook" href="/api-reference/endpoint/webhook">
-    Set up real-time monitoring
-  </Card>
-  <Card title="Compliance" icon="shield-check" href="/deployment/cloud">
-    Learn about compliance features
+    Audit and activity endpoints
   </Card>
 </CardGroup>

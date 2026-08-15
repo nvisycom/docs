@@ -1,151 +1,146 @@
 ---
 title: "Quickstart"
-description: "Get started with Nvisy document redaction in minutes"
+description: "Redact your first document with Nvisy"
 ---
 
-Redact your first document in under 5 minutes using Nvisy's API or SDKs.
+This guide takes you from an API token to a redacted document.
 
-## Step 1: Get Your API Key
+## Prerequisites
 
-Sign up at [nvisy.com](https://nvisy.com) and generate an API key from your dashboard.
+- An Nvisy account, or a [self-hosted deployment](/deployment/on-premise/getting-started)
+- An API token from **API Tokens** in your account settings
+- A workspace — create one in the app, or with `POST /workspaces/`
 
-<Warning>
-  Keep your API key secure. Never commit it to version control. Use environment variables.
-</Warning>
+<Tip>
+  Export your token so the examples below can pick it up:
+  `export NVISY_API_TOKEN="..."`
+</Tip>
 
-## Step 2: Choose Your Method
+## Install an SDK
 
-<Tabs>
-  <Tab title="TypeScript">
-    Install the SDK:
-    
-    ```bash
-    npm install @nvisy/sdk
-    ```
-    
-    Initialize and redact:
-    
+<CodeGroup>
+
+```bash TypeScript
+npm install @nvisy/sdk
+```
+
+```bash Python
+pip install nvisy-sdk
+```
+
+```toml Rust
+# Cargo.toml
+nvisy-sdk = "0.1"
+```
+
+</CodeGroup>
+
+The TypeScript SDK has full API coverage and is the reference implementation.
+The Python and Rust SDKs currently provide configured HTTP clients.
+
+## Verify Your Connection
+
+<CodeGroup>
+
+```typescript TypeScript
+import { Nvisy } from "@nvisy/sdk";
+
+const client = new Nvisy({ apiToken: process.env.NVISY_API_TOKEN! });
+
+const workspaces = await client.workspaces.listWorkspaces();
+console.log(workspaces.items.map((workspace) => workspace.slug));
+```
+
+```bash cURL
+curl https://api.nvisy.com/workspaces/ \
+  -H "Authorization: Bearer $NVISY_API_TOKEN"
+```
+
+</CodeGroup>
+
+## Redact a Document
+
+Redaction is deliberately two-phase: a run first **detects** sensitive data,
+and nothing is modified until you **apply** redactions.
+
+<Steps>
+  <Step title="Upload a file">
     ```typescript
-    import { NvisyClient } from '@nvisy/sdk';
+    import { readFile } from "node:fs/promises";
 
-    const nvisy = new NvisyClient({
-      apiKey: process.env.NVISY_API_KEY
-    });
+    const workspaceSlug = "acme";
+    const bytes = await readFile("./contract.pdf");
 
-    const result = await nvisy.documents.redact({
-      file: './document.pdf',
-      detectionTypes: ['pii', 'phi', 'financial']
-    });
-
-    await result.downloadRedacted('./redacted.pdf');
-    console.log(`Redacted ${result.detections.length} items`);
+    const [file] = await client.files.uploadFiles(
+      workspaceSlug,
+      new File([bytes], "contract.pdf", { type: "application/pdf" }),
+    );
     ```
-    
-    [View full TypeScript guide →](/sdks/typescript/quickstart)
-  </Tab>
-  
-  <Tab title="Python">
-    Install the SDK:
-    
-    ```bash
-    pip install nvisy
-    ```
-    
-    Initialize and redact:
-    
-    ```python
-    from nvisy import NvisyClient
-    import os
+  </Step>
 
-    client = NvisyClient(api_key=os.getenv('NVISY_API_KEY'))
-
-    result = client.documents.redact(
-        file='./document.pdf',
-        detection_types=['pii', 'phi', 'financial']
-    )
-
-    result.download_redacted('./redacted.pdf')
-    print(f"Redacted {len(result.detections)} items")
-    ```
-    
-    [View full Python guide →](/sdks/python/quickstart)
-  </Tab>
-  
-  <Tab title="cURL">
-    Redact via REST API:
-    
-    ```bash
-    curl -X POST https://api.nvisy.com/v1/documents/redact \
-      -H "Authorization: Bearer YOUR_API_KEY" \
-      -F "file=@document.pdf" \
-      -F "detection_types=pii,phi,financial" \
-      -o redacted.pdf
-    ```
-    
-    [View API reference →](/api-reference/introduction)
-  </Tab>
-</Tabs>
-
-## Detection Types
-
-| Type | Detects |
-|------|---------|
-| `pii` | Names, SSN, addresses, phone numbers, email |
-| `phi` | Medical records, diagnoses, prescriptions |
-| `financial` | Credit cards, bank accounts, tax IDs |
-| `custom` | Your organization-specific patterns |
-
-## Common Use Cases
-
-<AccordionGroup>
-  <Accordion title="Redact with custom confidence threshold">
+  <Step title="Start a detection run">
     ```typescript
-    const result = await nvisy.documents.redact({
-      file: './document.pdf',
-      detectionTypes: ['pii'],
-      confidenceThreshold: 0.9  // Higher = fewer false positives
+    let run = await client.runs.createRun(workspaceSlug, "default", {
+      fileId: file.id,
     });
     ```
-  </Accordion>
-  
-  <Accordion title="Redact custom patterns">
+
+    Runs move through `queued` → `analyzing` → `analyzed`.
+  </Step>
+
+  <Step title="Wait for detection to finish">
     ```typescript
-    const result = await nvisy.documents.redact({
-      file: './document.pdf',
-      detectionTypes: ['custom'],
-      customPatterns: [{
-        name: 'employee_id',
-        pattern: /EMP-\d{6}/g,
-        description: 'Employee IDs'
-      }]
-    });
+    while (run.status === "queued" || run.status === "analyzing") {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      run = await client.runs.getRun(workspaceSlug, run.id);
+    }
     ```
-  </Accordion>
-  
-  <Accordion title="Batch process multiple documents">
+  </Step>
+
+  <Step title="Review what was found">
     ```typescript
-    const results = await nvisy.documents.batchRedact({
-      files: ['doc1.pdf', 'doc2.pdf', 'doc3.pdf'],
-      detectionTypes: ['pii', 'phi'],
-      parallel: true
-    });
+    const audit = await client.runs.getDetections(workspaceSlug, run.id);
+    console.log(`${audit.parts.length} parts analyzed`);
     ```
-  </Accordion>
-</AccordionGroup>
+  </Step>
+
+  <Step title="Apply redactions">
+    ```typescript
+    const completed = await client.runs.redact(workspaceSlug, run.id);
+    console.log(completed.status, completed.outputFileId);
+    ```
+  </Step>
+
+  <Step title="Download the result">
+    ```typescript
+    import { writeFile } from "node:fs/promises";
+
+    const response = await client.files.downloadFile(
+      workspaceSlug,
+      completed.outputFileId!,
+    );
+
+    await writeFile(
+      "./contract-redacted.pdf",
+      Buffer.from(await response.arrayBuffer()),
+    );
+    ```
+  </Step>
+</Steps>
 
 ## Next Steps
 
 <CardGroup cols={2}>
-  <Card title="Features" icon="sparkles" href="/features/redaction-workflow">
-    Explore redaction capabilities
+  <Card title="Redaction Workflow" icon="workflow" href="/features/redaction-workflow">
+    How detection and redaction fit together
   </Card>
   <Card title="API Reference" icon="code" href="/api-reference/introduction">
-    Complete API documentation
+    Every endpoint, generated from the spec
   </Card>
   <Card title="TypeScript SDK" icon="js" href="/sdks/typescript/quickstart">
-    Advanced TypeScript examples
+    Full API coverage
   </Card>
-  <Card title="Deployment" icon="server" href="/deployment/cloud/getting-started">
-    Deploy Nvisy
+  <Card title="Audit Trails" icon="shield-check" href="/features/audit-trails">
+    Export run audits for archiving
   </Card>
 </CardGroup>

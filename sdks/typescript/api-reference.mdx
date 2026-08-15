@@ -3,335 +3,199 @@ title: "API Reference"
 description: "Complete TypeScript SDK API reference"
 ---
 
-## NvisyClient
+## Nvisy
 
-The main client class for interacting with the Nvisy API.
-
-### Constructor
+The client class. All services are exposed as lazily-constructed properties.
 
 ```typescript
-new NvisyClient(options: NvisyClientOptions)
+import { Nvisy } from "@nvisy/sdk";
+
+const client = new Nvisy(config: ClientConfig);
 ```
 
-**Parameters:**
+### ClientConfig
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `apiKey` | `string` | Yes | - | Your API key |
-| `environment` | `'production' \| 'staging'` | No | `'production'` | Environment |
+| Property | Type | Required | Default | Description |
+|----------|------|----------|---------|-------------|
+| `apiToken` | `string` | Yes | — | API token used for authentication |
 | `baseUrl` | `string` | No | `https://api.nvisy.com` | Custom API base URL |
-| `timeout` | `number` | No | `30000` | Request timeout in ms |
-| `maxRetries` | `number` | No | `3` | Max retry attempts |
+| `userAgent` | `string` | No | `@nvisy/sdk v.<version>` | Custom user agent |
+| `withLogging` | `boolean` | No | `false` | Enable debug logging |
+| `headers` | `Record<string, string>` | No | — | Extra headers on every request |
 
-## Documents API
+`DEFAULTS` and `VERSION` are exported for reference.
 
-### `documents.redact()`
+### Services
 
-Redact sensitive information from a document.
+| Property | Description |
+|----------|-------------|
+| `auth` | Login, signup, logout |
+| `account` | The authenticated user's account |
+| `apiTokens` | Create and revoke API tokens |
+| `workspaces` | Workspace CRUD, avatars, notification settings |
+| `members` | Workspace membership |
+| `invites` | Workspace invitations |
+| `files` | Upload, list, download, delete files |
+| `pipelines` | Pipeline definitions |
+| `policies` | Detection and redaction policies |
+| `runs` | Pipeline runs, detections, redaction, audit export |
+| `connections` | External data source connections |
+| `syncs` | Connection sync jobs |
+| `webhooks` | Webhook endpoints |
+| `notifications` | User notifications |
+| `activities` | Workspace activity log |
+| `catalog` | Available labels and recognizers |
+| `status` | Service health |
+| `api` | Underlying typed HTTP client |
+
+<Note>
+  Most methods take `workspaceSlug` as their first argument. Workspaces are the
+  top-level tenancy boundary.
+</Note>
+
+## Workspaces
 
 ```typescript
-documents.redact(options: RedactOptions): Promise<RedactionResult>
+listWorkspaces(query?: CursorPagination): Promise<WorkspacePage>
+getWorkspace(workspaceSlug: string): Promise<Workspace>
+createWorkspace(workspace: CreateWorkspace): Promise<Workspace>
+updateWorkspace(workspaceSlug: string, updates: UpdateWorkspace): Promise<Workspace>
+deleteWorkspace(workspaceSlug: string): Promise<void>
+getNotificationSettings(workspaceSlug: string): Promise<NotificationSettings>
+updateNotificationSettings(workspaceSlug: string, settings: UpdateNotificationSettings): Promise<NotificationSettings>
+uploadAvatar(workspaceSlug: string, avatar: Blob): Promise<void>
+deleteAvatar(workspaceSlug: string): Promise<void>
 ```
 
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `file` | `string \| File \| Buffer \| ReadStream` | Yes | - | File to redact |
-| `detectionTypes` | `DetectionType[]` | Yes | - | Types to detect |
-| `confidenceThreshold` | `number` | No | `0.8` | Minimum confidence (0-1) |
-| `customPatterns` | `CustomPattern[]` | No | - | Custom regex patterns |
-| `preserveFormatting` | `boolean` | No | `true` | Preserve formatting |
-| `redactionStyle` | `RedactionStyle` | No | `'black-box'` | Redaction style |
-
-**Returns:** `Promise<RedactionResult>`
+## Files
 
 ```typescript
-interface RedactionResult {
-  documentId: string;
-  status: 'completed' | 'processing' | 'failed';
-  detections: Detection[];
-  auditTrail: AuditEntry[];
-  downloadRedacted: (path?: string) => Promise<void>;
-  getRedactedBuffer: () => Promise<Buffer>;
-  getRedactedUrl: () => string;
-}
+uploadFiles(workspaceSlug: string, files: Blob | Blob[]): Promise<File[]>
+listFiles(workspaceSlug: string, query?: ListFiles & CursorPagination): Promise<FilePage>
+getFile(workspaceSlug: string, fileId: string): Promise<File>
+downloadFile(workspaceSlug: string, fileId: string): Promise<Response>
+updateFile(workspaceSlug: string, fileId: string, updates: UpdateFile): Promise<File>
+deleteFile(workspaceSlug: string, fileId: string): Promise<void>
 ```
 
-**Example:**
+`uploadFiles` accepts a single `Blob` or an array, and sends them as
+`multipart/form-data`. `downloadFile` returns the raw `Response` so you can
+stream the body.
+
+## Pipelines
 
 ```typescript
-const result = await nvisy.documents.redact({
-  file: './document.pdf',
-  detectionTypes: ['pii', 'phi'],
-  confidenceThreshold: 0.85
+listPipelines(workspaceSlug: string, query?: PipelineFilter & CursorPagination): Promise<PipelineSummaryPage>
+createPipeline(workspaceSlug: string, pipeline: CreatePipeline): Promise<Pipeline>
+getPipeline(workspaceSlug: string, pipelineSlug: string): Promise<Pipeline>
+updatePipeline(workspaceSlug: string, pipelineSlug: string, updates: UpdatePipeline): Promise<Pipeline>
+deletePipeline(workspaceSlug: string, pipelineSlug: string): Promise<void>
+```
+
+## Policies
+
+```typescript
+listPolicies(workspaceSlug: string, query?: CursorPagination): Promise<PolicyPage>
+createPolicy(workspaceSlug: string, policy: CreatePolicy): Promise<Policy>
+getPolicy(workspaceSlug: string, policySlug: string): Promise<Policy>
+updatePolicy(workspaceSlug: string, policySlug: string, updates: UpdatePolicy): Promise<Policy>
+deletePolicy(workspaceSlug: string, policySlug: string): Promise<void>
+```
+
+## Runs
+
+```typescript
+listRuns(workspaceSlug: string, query?: PipelineRunsQuery & CursorPagination): Promise<PipelineRunPage>
+listPipelineRuns(workspaceSlug: string, pipelineSlug: string, query?: PipelineRunsQuery & CursorPagination): Promise<PipelineRunPage>
+createRun(workspaceSlug: string, pipelineSlug: string, run: CreatePipelineRun): Promise<PipelineRun>
+getRun(workspaceSlug: string, runId: string): Promise<PipelineRun>
+getDetections(workspaceSlug: string, runId: string): Promise<Audit>
+redact(workspaceSlug: string, runId: string): Promise<PipelineRun>
+downloadAuditJson(workspaceSlug: string, runId: string): Promise<Response>
+downloadAuditCsv(workspaceSlug: string, runId: string): Promise<Response>
+events(workspaceSlug: string, runId: string): Promise<Response>
+```
+
+`createRun` starts detection over a single file:
+
+```typescript
+const run = await client.runs.createRun(workspaceSlug, pipelineSlug, {
+  fileId: file.id,
 });
 ```
 
-### `documents.upload()`
+`events` returns a server-sent events stream of `RunStatusEvent` values for
+live progress. `redact` applies redactions once you are satisfied with the
+detections.
 
-Upload a document without immediate redaction.
+## API Tokens
 
 ```typescript
-documents.upload(options: UploadOptions): Promise<Document>
+listApiTokens(query?: CursorPagination): Promise<ApiTokenPage>
+getApiToken(tokenId: string): Promise<ApiToken>
+createApiToken(token: CreateApiToken): Promise<ApiTokenWithJWT>
+updateApiToken(tokenId: string, updates: UpdateApiToken): Promise<ApiToken>
+revokeApiToken(tokenId: string): Promise<void>
 ```
 
-**Parameters:**
+<Warning>
+  `createApiToken` returns the JWT exactly once. Store it immediately — it
+  cannot be retrieved later.
+</Warning>
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `file` | `string \| File \| Buffer \| ReadStream` | Yes | File to upload |
-| `metadata` | `Record<string, any>` | No | Custom metadata |
-
-**Example:**
+## Authentication
 
 ```typescript
-const document = await nvisy.documents.upload({
-  file: './document.pdf',
-  metadata: {
-    department: 'hr',
-    tags: ['confidential']
+loginAccount(credentials: Login): Promise<AuthToken>
+signupAccount(credentials: Signup): Promise<AuthToken>
+logoutAccount(): Promise<void>
+```
+
+## Pagination
+
+List methods are cursor-paginated and accept `CursorPagination`:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `after` | `string` | Cursor pointing at the last item of the previous page |
+| `limit` | `number` | Maximum items to return |
+
+```typescript
+let after: string | undefined;
+do {
+  const page = await client.files.listFiles(workspaceSlug, { after, limit: 50 });
+  for (const file of page.items) console.log(file.id);
+  after = page.nextCursor;
+} while (after);
+```
+
+## Errors
+
+```typescript
+import { NvisyError, NvisyApiError } from "@nvisy/sdk";
+```
+
+`NvisyError` is the base class. `NvisyApiError` extends it for API responses:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `message` | `string` | User-facing message |
+| `statusCode` | `number` | HTTP status code |
+| `resource` | `string \| undefined` | Resource involved |
+| `suggestion` | `string \| undefined` | Suggested remedy |
+| `validation` | `object \| undefined` | Field-level validation details |
+
+Helpers: `isClientError()` (4xx), `isServerError()` (5xx), `isRetryable()`.
+
+```typescript
+try {
+  await client.runs.redact(workspaceSlug, runId);
+} catch (error) {
+  if (error instanceof NvisyApiError) {
+    if (error.isRetryable()) {
+      // safe to retry with backoff
+    }
+    console.error(error.statusCode, error.message, error.suggestion);
   }
-});
-```
-
-### `documents.get()`
-
-Retrieve document information.
-
-```typescript
-documents.get(documentId: string): Promise<Document>
-```
-
-**Example:**
-
-```typescript
-const document = await nvisy.documents.get('doc_abc123');
-console.log(document.status);
-```
-
-### `documents.list()`
-
-List all documents.
-
-```typescript
-documents.list(options?: ListOptions): Promise<DocumentList>
-```
-
-**Parameters:**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `limit` | `number` | `50` | Number of results |
-| `offset` | `number` | `0` | Offset for pagination |
-| `status` | `DocumentStatus` | - | Filter by status |
-| `sortBy` | `string` | `'created_at'` | Sort field |
-| `sortOrder` | `'asc' \| 'desc'` | `'desc'` | Sort order |
-
-**Example:**
-
-```typescript
-const documents = await nvisy.documents.list({
-  limit: 100,
-  status: 'completed'
-});
-```
-
-### `documents.delete()`
-
-Delete a document.
-
-```typescript
-documents.delete(documentId: string): Promise<void>
-```
-
-**Example:**
-
-```typescript
-await nvisy.documents.delete('doc_abc123');
-```
-
-### `documents.batchRedact()`
-
-Redact multiple documents in parallel.
-
-```typescript
-documents.batchRedact(options: BatchRedactOptions): Promise<BatchResult>
-```
-
-**Parameters:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `files` | `Array<string \| File>` | Yes | Files to redact |
-| `detectionTypes` | `DetectionType[]` | Yes | Types to detect |
-| `parallel` | `boolean` | No | Process in parallel |
-| `maxConcurrent` | `number` | No | Max concurrent jobs |
-
-**Example:**
-
-```typescript
-const results = await nvisy.documents.batchRedact({
-  files: ['doc1.pdf', 'doc2.pdf', 'doc3.pdf'],
-  detectionTypes: ['pii'],
-  parallel: true,
-  maxConcurrent: 5
-});
-```
-
-## Detections API
-
-### `detections.analyze()`
-
-Analyze without redacting.
-
-```typescript
-detections.analyze(options: AnalyzeOptions): Promise<AnalysisResult>
-```
-
-**Example:**
-
-```typescript
-const analysis = await nvisy.detections.analyze({
-  file: './document.pdf',
-  detectionTypes: ['pii', 'phi']
-});
-```
-
-## Webhooks API
-
-### `webhooks.create()`
-
-Create a webhook.
-
-```typescript
-webhooks.create(options: WebhookOptions): Promise<Webhook>
-```
-
-**Parameters:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `url` | `string` | Yes | Webhook endpoint URL |
-| `events` | `WebhookEvent[]` | Yes | Events to subscribe |
-| `secret` | `string` | No | Secret for verification |
-
-**Example:**
-
-```typescript
-const webhook = await nvisy.webhooks.create({
-  url: 'https://your-app.com/webhooks/nvisy',
-  events: ['redaction.completed', 'redaction.failed'],
-  secret: 'webhook_secret'
-});
-```
-
-### `webhooks.list()`
-
-List webhooks.
-
-```typescript
-webhooks.list(): Promise<Webhook[]>
-```
-
-### `webhooks.delete()`
-
-Delete a webhook.
-
-```typescript
-webhooks.delete(webhookId: string): Promise<void>
-```
-
-## Types
-
-### DetectionType
-
-```typescript
-type DetectionType = 'pii' | 'phi' | 'financial' | 'custom';
-```
-
-### RedactionStyle
-
-```typescript
-type RedactionStyle = 'black-box' | 'blur' | 'pixelate';
-```
-
-### CustomPattern
-
-```typescript
-interface CustomPattern {
-  name: string;
-  pattern: RegExp;
-  description?: string;
 }
 ```
-
-### Detection
-
-```typescript
-interface Detection {
-  id: string;
-  type: DetectionType;
-  confidence: number;
-  page: number;
-  text: string;
-  coordinates?: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
-}
-```
-
-### AuditEntry
-
-```typescript
-interface AuditEntry {
-  id: string;
-  timestamp: string;
-  action: string;
-  user?: {
-    id: string;
-    email: string;
-  };
-  details?: Record<string, any>;
-}
-```
-
-## Utility Functions
-
-### `verifyWebhookSignature()`
-
-Verify webhook signatures.
-
-```typescript
-function verifyWebhookSignature(
-  payload: any,
-  signature: string,
-  secret: string
-): boolean
-```
-
-**Example:**
-
-```typescript
-import { verifyWebhookSignature } from '@nvisy/sdk';
-
-const isValid = verifyWebhookSignature(
-  req.body,
-  req.headers['x-nvisy-signature'],
-  webhookSecret
-);
-```
-
-## Next Steps
-
-<CardGroup cols={2}>
-  <Card title="Examples" icon="code" href="/sdks/typescript/examples">
-    View code examples
-  </Card>
-  <Card title="REST API" icon="book" href="/api-reference/introduction">
-    REST API documentation
-  </Card>
-</CardGroup>
