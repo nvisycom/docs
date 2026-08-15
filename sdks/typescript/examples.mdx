@@ -1,0 +1,249 @@
+---
+title: "Examples"
+description: "Code examples for common use cases with the TypeScript SDK"
+---
+
+All examples assume a configured client:
+
+```typescript
+import { Nvisy } from "@nvisy/sdk";
+
+const client = new Nvisy({ apiToken: process.env.NVISY_API_TOKEN! });
+```
+
+## End-to-End Redaction
+
+Upload a document, detect sensitive data, review, then redact:
+
+```typescript
+import { readFile } from "node:fs/promises";
+
+const workspaceSlug = "acme";
+const pipelineSlug = "default";
+
+// 1. Upload
+const bytes = await readFile("./contract.pdf");
+const [file] = await client.files.uploadFiles(
+  workspaceSlug,
+  new File([bytes], "contract.pdf", { type: "application/pdf" }),
+);
+
+// 2. Detect
+let run = await client.runs.createRun(workspaceSlug, pipelineSlug, {
+  fileId: file.id,
+});
+
+// 3. Wait for detection to settle. The stream ends once the run settles.
+const events = await client.runs.events(workspaceSlug, run.id);
+const reader = events.body!.pipeThrough(new TextDecoderStream()).getReader();
+
+let status = run.status;
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+
+  for (const line of value.split("\n")) {
+    if (!line.startsWith("data:")) continue;
+    ({ status } = JSON.parse(line.slice(5)));
+  }
+}
+
+if (status !== "analyzed") {
+  run = await client.runs.getRun(workspaceSlug, run.id);
+  throw new Error(`Run ${run.id} ended as ${run.status}: ${run.error ?? ""}`);
+}
+
+// 4. Review detections
+const audit = await client.runs.getDetections(workspaceSlug, run.id);
+console.log(`${audit.parts.length} parts analyzed`);
+
+// 5. Apply redactions
+const completed = await client.runs.redact(workspaceSlug, run.id);
+console.log(completed.status, completed.outputFileId);
+```
+
+<Note>
+  A run moves through `queued` → `analyzing` → `analyzed`, and only reaches
+  `completed` after you call `redact`. This review step is deliberate — nothing
+  is modified until you approve it.
+</Note>
+
+## Downloading the Redacted File
+
+```typescript
+import { writeFile } from "node:fs/promises";
+
+const response = await client.files.downloadFile(
+  workspaceSlug,
+  completed.outputFileId!,
+);
+
+await writeFile("./contract-redacted.pdf", Buffer.from(await response.arrayBuffer()));
+```
+
+## Reporting Live Progress
+
+Each event's `data` is a `RunStatusEvent` — `{ runId, status }` — so the same
+stream can drive a progress indicator:
+
+```typescript
+const events = await client.runs.events(workspaceSlug, run.id);
+const reader = events.body!.pipeThrough(new TextDecoderStream()).getReader();
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+
+  for (const line of value.split("\n")) {
+    if (!line.startsWith("data:")) continue;
+    const event = JSON.parse(line.slice(5));
+    console.log(`run ${event.runId} is now ${event.status}`);
+  }
+}
+```
+
+<Note>
+  The stream closes on its own once the run settles, so the loop terminates
+  without a timeout. If the connection drops early, re-read the run with
+  `getRun` — the run row is the source of truth.
+</Note>
+
+## Batch Uploads
+
+`uploadFiles` accepts an array and returns metadata for each file:
+
+```typescript
+const files = await client.files.uploadFiles(workspaceSlug, [
+  new File([await readFile("./a.pdf")], "a.pdf"),
+  new File([await readFile("./b.png")], "b.png"),
+]);
+
+const runs = await Promise.all(
+  files.map((file) =>
+    client.runs.createRun(workspaceSlug, pipelineSlug, { fileId: file.id }),
+  ),
+);
+```
+
+## Paginating Results
+
+List endpoints are cursor-based. Follow `nextCursor` until it is absent:
+
+```typescript
+let after: string | undefined;
+
+do {
+  const page = await client.files.listFiles(workspaceSlug, { after, limit: 50 });
+  for (const file of page.items) {
+    console.log(file.id, file.originalFilename, file.fileSize);
+  }
+  after = page.nextCursor;
+} while (after);
+```
+
+## Creating a Policy and Pipeline
+
+A policy defines what counts as sensitive; a pipeline defines how documents are
+processed. Inspect the catalog to see what is available:
+
+```typescript
+const { labels, recognizers } = {
+  labels: await client.catalog.listLabels(),
+  recognizers: await client.catalog.listRecognizers(),
+};
+
+const policy = await client.policies.createPolicy(workspaceSlug, {
+  name: "Contracts",
+  // ...policy definition
+});
+
+const pipeline = await client.pipelines.createPipeline(workspaceSlug, {
+  name: "Contract review",
+  // ...pipeline definition referencing the policy
+});
+```
+
+<Tip>
+  Refer to the [API Reference](/api-reference/introduction) for the exact
+  `CreatePolicy` and `CreatePipeline` shapes — they are generated from the
+  OpenAPI specification and stay in sync with the server.
+</Tip>
+
+## Exporting an Audit Trail
+
+Runs expose their audit in JSON and CSV for long-term archiving:
+
+```typescript
+const json = await client.runs.downloadAuditJson(workspaceSlug, run.id);
+await writeFile("./audit.json", Buffer.from(await json.arrayBuffer()));
+
+const csv = await client.runs.downloadAuditCsv(workspaceSlug, run.id);
+await writeFile("./audit.csv", Buffer.from(await csv.arrayBuffer()));
+```
+
+## Error Handling
+
+<Warning>
+  Wrap only reads or idempotency-keyed writes in an automatic retry. A `POST`
+  that uploads a file or applies redactions may have already succeeded when the
+  response failed, so retrying it blindly can duplicate work.
+</Warning>
+
+```typescript
+import { NvisyApiError } from "@nvisy/sdk";
+
+async function withRetry<T>(operation: () => Promise<T>, attempts = 3): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (
+        attempt >= attempts ||
+        !(error instanceof NvisyApiError) ||
+        !error.isRetryable()
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2 ** attempt * 250));
+    }
+  }
+}
+
+// One stable key for every attempt of this logical run: if an earlier attempt
+// reached the server, the retry returns that same run instead of creating
+// a duplicate.
+const idempotencyKey = crypto.randomUUID();
+
+try {
+  const run = await withRetry(() =>
+    client.runs.createRun(
+      workspaceSlug,
+      pipelineSlug,
+      { fileId: file.id },
+      { headers: { "Idempotency-Key": idempotencyKey } },
+    ),
+  );
+} catch (error) {
+  if (error instanceof NvisyApiError) {
+    console.error(`[${error.statusCode}] ${error.message}`);
+    if (error.suggestion) console.error(`Hint: ${error.suggestion}`);
+    if (error.validation) console.error(error.validation);
+  }
+}
+```
+
+## Managing API Tokens
+
+```typescript
+const created = await client.apiTokens.createApiToken({
+  displayName: "ci-pipeline",
+  expiresIn: 2592000, // seconds
+});
+
+// `created.token` is returned only once. Write it straight into a secret
+// manager or an environment variable — never log or print it.
+await secrets.store("NVISY_API_TOKEN", created.token);
+
+await client.apiTokens.revokeApiToken(created.id);
+```

@@ -1,0 +1,131 @@
+---
+title: "Supported Formats"
+description: "File formats Nvisy can analyze and redact"
+---
+
+Every file belongs to a **modality** — `text`, `tabular`, `image`, or `audio` —
+which determines how it is analyzed and which redaction operators apply.
+
+## Formats
+
+<Tabs>
+  <Tab title="Text">
+    | Extension | Notes |
+    |-----------|-------|
+    | `pdf` | Born-digital or scanned; scanned pages go through OCR |
+    | `docx` | Container format — embedded media is analyzed separately |
+    | `rtf` | Rich text |
+    | `txt` | Plain text |
+    | `log` | Plain text |
+    | `html`, `htm` | Markup |
+    | `xml` | Markup |
+    | `json` | Structured text |
+  </Tab>
+  <Tab title="Tabular">
+    | Extension | Notes |
+    |-----------|-------|
+    | `csv` | Delimited rows |
+    | `xlsx` | Container format — sheets analyzed per part |
+  </Tab>
+  <Tab title="Image">
+    | Extension | Notes |
+    |-----------|-------|
+    | `png` | |
+    | `jpg`, `jpeg` | |
+    | `tif`, `tiff` | Multi-page images supported |
+  </Tab>
+  <Tab title="Audio">
+    | Extension | Notes |
+    |-----------|-------|
+    | `wav` | Transcribed, then analyzed |
+  </Tab>
+</Tabs>
+
+<Note>
+  Filtering by extension expands to the whole format's extension set — passing
+  `jpg` also matches `jpeg`, and `tif` also matches `tiff`.
+</Note>
+
+## Container Formats
+
+Formats like `docx` and `xlsx` are containers: they hold parts that may have
+their own modality. An image embedded in a Word document is analyzed as an
+image, in its own right.
+
+The run's audit reflects this. Each container part appears in `parts`, keyed by
+its container-private ID — for a DOCX, that is the zip entry name:
+
+```json
+{
+  "body": { "modality": "text", "entities": [] },
+  "parts": {
+    "word/media/image1.png": { "modality": "image", "entities": [] }
+  }
+}
+```
+
+This is why a document can produce both text and image findings from a single
+run, each redacted with operators appropriate to its modality.
+
+## OCR
+
+Scanned documents have no selectable text layer and must be rendered to images
+before recognition. A run's scope controls this:
+
+```json
+{
+  "scope": {
+    "ocrMode": { "kind": "force", "dpi": 300 }
+  }
+}
+```
+
+| Mode | Behavior |
+|------|----------|
+| `auto` | Extract the text layer, render only pages that lack one |
+| `force` | Always render pages to images at the given `dpi` |
+| `never` | Never render; rely on the existing text layer |
+
+<Warning>
+  `auto` is the intended default, but the text-layer parser that drives the
+  decision is not in place yet — today only `force` actually renders. Use
+  `force` for scanned documents.
+</Warning>
+
+## Filtering Files
+
+List endpoints filter by format, modality, or name:
+
+```typescript
+const page = await client.files.listFiles(workspaceSlug, {
+  formats: ["pdf", "docx"],
+  modality: ["text"],
+  search: "contract",
+  limit: 50,
+});
+```
+
+## File Roles
+
+Each file records the role it plays, which drives retention and whether it is
+user-facing:
+
+| Kind | Description |
+|------|-------------|
+| `original` | Source document, uploaded or imported |
+| `redacted` | Redacted output produced by a pipeline |
+| `audit` | Engine analysis blob; hidden from file lists |
+
+Redacted outputs are linked to their source through `parentId`, forming a
+version chain rather than overwriting the original.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Redaction Workflow" icon="workflow" href="/features/redaction-workflow">
+    How modality drives redaction
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    File endpoints and filters
+  </Card>
+</CardGroup>

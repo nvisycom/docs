@@ -1,0 +1,161 @@
+---
+title: "Authentication"
+description: "Authenticating with the Nvisy API"
+---
+
+Every API request authenticates with a bearer token:
+
+```bash
+curl https://api.nvisy.com/workspaces/ \
+  -H "Authorization: Bearer $NVISY_API_TOKEN"
+```
+
+## Creating a Token
+
+<Steps>
+  <Step title="Open your account settings">
+    Navigate to **API Tokens**.
+  </Step>
+  <Step title="Create a token">
+    Give it a display name describing where it will be used, and optionally an
+    expiry.
+  </Step>
+  <Step title="Store it immediately">
+    The token value is shown once and cannot be retrieved afterwards.
+  </Step>
+</Steps>
+
+Tokens can also be managed through the API:
+
+```
+GET    /api-tokens/
+POST   /api-tokens/
+GET    /api-tokens/{tokenId}/
+PATCH  /api-tokens/{tokenId}/
+DELETE /api-tokens/{tokenId}/
+```
+
+```typescript
+const created = await client.apiTokens.createApiToken({
+  displayName: "ci-pipeline",
+  expiresIn: 2592000, // seconds
+});
+
+// `created.token` is returned only once. Write it straight into a secret
+// manager or an environment variable — never log or print it.
+await secrets.store("NVISY_API_TOKEN", created.token);
+```
+
+<Warning>
+  `createApiToken` is the only response that contains the token value. If it is
+  lost, revoke the token and create a new one.
+</Warning>
+
+## Token Properties
+
+| Field | Description |
+|-------|-------------|
+| `id` | Token identifier, used to revoke or update it |
+| `displayName` | Human-readable label |
+| `sessionType` | How the token is used — `web`, `api`, or `cli` |
+| `issuedAt` | When it was created |
+| `expiredAt` | When it expires, if an expiry was set |
+| `lastUsedAt` | When it was last seen |
+| `current` | Whether it is the token making this request |
+
+<Tip>
+  `lastUsedAt` is the quickest way to find tokens that are no longer in use and
+  can safely be revoked.
+</Tip>
+
+## Storing Tokens
+
+Read tokens from the environment rather than embedding them in source:
+
+```bash
+export NVISY_API_TOKEN="..."
+```
+
+<CodeGroup>
+
+```typescript TypeScript
+const client = new Nvisy({ apiToken: process.env.NVISY_API_TOKEN! });
+```
+
+```python Python
+import os
+
+client = Client({"api_key": os.environ["NVISY_API_TOKEN"]})
+```
+
+```rust Rust
+let api_key = std::env::var("NVISY_API_TOKEN")?;
+let client = Nvisy::with_api_key(&api_key)?;
+```
+
+</CodeGroup>
+
+<Warning>
+  Never commit tokens to version control. Use environment variables or a secret
+  manager, and prefer short expiries for automated clients.
+</Warning>
+
+## Revoking a Token
+
+Revocation takes effect immediately:
+
+```typescript
+await client.apiTokens.revokeApiToken(tokenId);
+```
+
+To rotate without downtime, create the replacement first, deploy it, then
+revoke the old token once `lastUsedAt` stops advancing.
+
+## Session Authentication
+
+Interactive clients authenticate with credentials instead, receiving a token in
+return:
+
+```
+POST /auth/login/
+POST /auth/signup/
+POST /auth/logout/
+```
+
+```typescript
+const session = await client.auth.loginAccount({
+  identifier: "user@example.com",
+  password: "...",
+  rememberMe: true,
+});
+
+// Keep `session.apiToken` out of logs; only its expiry is safe to print.
+console.log(session.expiresAt);
+```
+
+<Note>
+  `identifier` accepts either a username or an email address. Prefer API tokens
+  for programmatic access — session tokens are scoped to interactive use and
+  expire sooner.
+</Note>
+
+## Errors
+
+| Status | Meaning |
+|--------|---------|
+| `401` | Missing, malformed, expired, or revoked token |
+| `403` | Valid token, but not permitted for this resource |
+
+A `403` on a workspace resource usually means the account is not a member of
+that workspace rather than that the token is wrong.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Getting Started" icon="cloud" href="/deployment/cloud/getting-started">
+    Set up a cloud workspace
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Token and auth endpoints
+  </Card>
+</CardGroup>

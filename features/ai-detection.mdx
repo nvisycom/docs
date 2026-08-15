@@ -1,0 +1,136 @@
+---
+title: "AI Detection"
+description: "How Nvisy recognizes sensitive data in documents"
+---
+
+Detection combines several recognition strategies and reconciles their results
+into a single set of entities, each with a label, confidence, and location.
+
+## Recognition Strategies
+
+<CardGroup cols={2}>
+  <Card title="Patterns" icon="regex">
+    Deterministic matching for structured values
+  </Card>
+  <Card title="NER" icon="brain">
+    Named-entity recognition for names, places, and organizations
+  </Card>
+  <Card title="LLM" icon="microchip">
+    Model-driven classification for context-dependent data
+  </Card>
+  <Card title="Vision" icon="image">
+    Recognition over rendered pages and embedded images
+  </Card>
+</CardGroup>
+
+Recognition is deployment-wide: the built-in pattern set plus whichever
+recognizers the engine has registered. Pipelines choose *what* to target and
+*how* to treat it, not which recognizers exist.
+
+## The Catalog
+
+Two read-only endpoints describe what a deployment offers:
+
+```
+GET /catalog/labels/
+GET /catalog/recognizers/
+```
+
+`labels` returns the built-in taxonomy — the categories of sensitive data
+(PII, PHI, PCI, and so on) that policies can target. `recognizers` returns the
+engine's registered lineup, grouped into `ner` and `llm`.
+
+```typescript
+const labels = await client.catalog.listLabels();
+const recognizers = await client.catalog.listRecognizers();
+
+console.log(recognizers.ner.length, recognizers.llm.length);
+```
+
+<Tip>
+  Query the catalog rather than hardcoding label names. It reflects what the
+  deployment you are talking to actually supports, which differs between cloud
+  and self-hosted installs.
+</Tip>
+
+## LLM Providers
+
+Model-driven recognition runs against a connected provider — `openai`,
+`anthropic`, or `ollama` for self-hosted inference. Configure one as a
+workspace [connection](/features/integrations).
+
+<Note>
+  With `ollama`, inference stays inside your infrastructure. Combined with an
+  on-premise deployment, no document content leaves your network.
+</Note>
+
+## Reconciliation
+
+Multiple recognizers frequently find the same thing, or disagree. Rather than
+taking the first match, the engine reconciles them — and records how. Each
+entity's audit chain shows the steps applied:
+
+| Event | Meaning |
+|-------|---------|
+| `pattern` | Matched a deterministic pattern |
+| `model` | Recognized by a model |
+| `deduplication` | Merged with an overlapping detection |
+| `conflict` | Competing detections were reconciled |
+| `contested` | Recognizers disagreed |
+| `calibration` | Confidence was calibrated |
+| `refinement` | Boundaries or label were refined |
+
+Events carry their `parents`, so a final entity can be traced back through
+every merge that produced it. See [Audit Trails](/features/audit-trails).
+
+## Entities
+
+Each recognized entity records:
+
+| Field | Description |
+|-------|-------------|
+| `label` | The taxonomy label it was classified as |
+| `confidence` | Calibrated confidence |
+| `location` | Position, in coordinates native to the modality |
+| `language` | Detected language, where applicable |
+| `coref` | Coreference link to other mentions of the same subject |
+
+<Note>
+  Coreference links matter for redaction consistency: when the same person is
+  mentioned several ways, linked mentions can be treated as one subject rather
+  than as unrelated findings.
+</Note>
+
+## Scope
+
+A run's scope narrows recognition to the languages and jurisdictions that
+apply, and controls OCR:
+
+```json
+{
+  "scope": {
+    "languages": ["en"],
+    "countries": ["US"],
+    "ocrMode": { "kind": "force", "dpi": 300 }
+  }
+}
+```
+
+Pipelines carry a default scope; individual runs may override it.
+
+## Review
+
+Detection never modifies a document. A run stops at `analyzed` with its
+findings recorded, and redaction is a separate, explicit step — so confidence
+scores inform a human decision rather than replacing one.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Redaction Workflow" icon="workflow" href="/features/redaction-workflow">
+    What happens after detection
+  </Card>
+  <Card title="Integrations" icon="plug" href="/features/integrations">
+    Connect an LLM provider
+  </Card>
+</CardGroup>

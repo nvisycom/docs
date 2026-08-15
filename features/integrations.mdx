@@ -1,0 +1,194 @@
+---
+title: "Integrations"
+description: "Connect Nvisy to object storage and LLM providers"
+---
+
+Workspaces connect to external systems through **connections**. A connection
+holds a provider, its credentials, and — for storage providers — a sync
+schedule.
+
+There are two kinds:
+
+<CardGroup cols={2}>
+  <Card title="Object Storage" icon="database">
+    `s3`, `azure`, `gcs` — sync files in and out of a workspace
+  </Card>
+  <Card title="LLM Inference" icon="microchip">
+    `openai`, `anthropic`, `ollama` — back AI-driven detection
+  </Card>
+</CardGroup>
+
+## Creating a Connection
+
+```
+POST /workspaces/{workspaceSlug}/connections/
+```
+
+The body carries a `displayName`, a typed `config`, and optionally `isActive`
+and a `sync` schedule. The provider is inferred from the config.
+
+<CodeGroup>
+
+```typescript S3
+const connection = await client.connections.createConnection(workspaceSlug, {
+  displayName: "Archive bucket",
+  config: {
+    provider: "s3",
+    credentials: { /* provider credentials */ },
+    rootPath: "contracts/",
+  },
+});
+```
+
+```typescript Anthropic
+const connection = await client.connections.createConnection(workspaceSlug, {
+  displayName: "Detection model",
+  config: {
+    provider: "anthropic",
+    credentials: { /* api key */ },
+    defaultModel: "claude-sonnet-5",
+  },
+});
+```
+
+```typescript Ollama
+const connection = await client.connections.createConnection(workspaceSlug, {
+  displayName: "Local inference",
+  config: {
+    provider: "ollama",
+    baseUrl: "http://127.0.0.1:11434",
+    defaultModel: "llama3",
+  },
+});
+```
+
+</CodeGroup>
+
+<Note>
+  `ollama` requires `baseUrl` rather than credentials — it is the self-hosted
+  option, so there is no key to supply. `openai` and `anthropic` accept an
+  optional `baseUrl` for gateways and compatible endpoints.
+</Note>
+
+## Storage Configuration
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `provider` | Yes | `s3`, `azure`, or `gcs` |
+| `credentials` | Yes | Provider credentials |
+| `rootPath` | No | Prefix to scope the connection to a subtree |
+
+## LLM Configuration
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `provider` | Yes | `openai`, `anthropic`, or `ollama` |
+| `credentials` | Yes, except `ollama` | Provider API key |
+| `baseUrl` | Required for `ollama` | Endpoint URL |
+| `defaultModel` | No | Model used when none is specified |
+
+## Verifying a Connection
+
+Check reachability before relying on a connection:
+
+```
+POST /workspaces/{workspaceSlug}/connections/{connectionId}/verify/
+```
+
+The response contains `reachable` and, on failure, an `error`.
+
+<Tip>
+  Verify after any credential rotation. A connection that stops being reachable
+  will surface as failed syncs rather than an obvious error.
+</Tip>
+
+## Syncing Files
+
+Storage connections can sync on a schedule or on demand.
+
+```
+POST /workspaces/{workspaceSlug}/connections/{connectionId}/sync/
+GET  /workspaces/{workspaceSlug}/connections/{connectionId}/syncs/
+GET  /workspaces/{workspaceSlug}/syncs/
+```
+
+### Schedule
+
+| Field | Description |
+|-------|-------------|
+| `syncMode` | `import` pulls into the workspace; `export` pushes out |
+| `scheduleCron` | Cron expression for automatic runs |
+| `deletionPolicy` | `ignore` or `delete` when a remote object disappears |
+
+```typescript
+await client.connections.updateConnection(workspaceSlug, connectionId, {
+  sync: {
+    syncMode: "import",
+    scheduleCron: "0 * * * *",
+    deletionPolicy: "ignore",
+  },
+});
+```
+
+<Warning>
+  `deletionPolicy: "delete"` removes workspace files when their remote
+  counterpart is gone. Use `ignore` unless the remote is authoritative.
+</Warning>
+
+### Sync Status
+
+A sync record reports `status`, `triggerType`, `recordsSynced`, `attempt`, and
+`errorMessage` on failure.
+
+| Status | Meaning |
+|--------|---------|
+| `pending` | Queued |
+| `running` | In progress |
+| `completed` | Finished successfully |
+| `failed` | Failed — see `errorMessage` |
+| `cancelled` | Cancelled by a user |
+
+Triggers are `manual`, `scheduled`, or `webhook`. Cancel a running sync with:
+
+```
+POST /workspaces/{workspaceSlug}/connections/{connectionId}/syncs/{syncId}/cancel/
+```
+
+## Webhooks
+
+Register endpoints to receive events as runs and syncs progress:
+
+```
+GET    /workspaces/{workspaceSlug}/webhooks/
+POST   /workspaces/{workspaceSlug}/webhooks/
+POST   /workspaces/{workspaceSlug}/webhooks/{webhookId}/test/
+DELETE /workspaces/{workspaceSlug}/webhooks/{webhookId}/
+```
+
+Use the `test` endpoint to confirm delivery before depending on it.
+
+## Managing Connections
+
+```
+GET    /workspaces/{workspaceSlug}/connections/
+GET    /workspaces/{workspaceSlug}/connections/{connectionId}/
+PATCH  /workspaces/{workspaceSlug}/connections/{connectionId}/
+DELETE /workspaces/{workspaceSlug}/connections/{connectionId}/
+```
+
+List endpoints accept a `provider` filter, and workspace-wide syncs also accept
+`status`.
+
+Set `isActive: false` to pause a connection without deleting it — scheduled
+syncs stop, and the configuration is retained.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Connection and sync endpoints
+  </Card>
+  <Card title="TypeScript SDK" icon="js" href="/sdks/typescript/api-reference">
+    `connections`, `syncs`, and `webhooks`
+  </Card>
+</CardGroup>

@@ -1,0 +1,101 @@
+---
+title: "API Reference"
+description: "Rust SDK API reference"
+---
+
+<Warning>
+  The Rust SDK currently covers client construction and health monitoring.
+  Redaction services are not yet exposed. For full API coverage today, use the
+  [TypeScript SDK](/sdks/typescript/api-reference).
+</Warning>
+
+<Card title="docs.rs" icon="rust" href="https://docs.rs/nvisy-sdk">
+  Full generated API documentation
+</Card>
+
+## Nvisy
+
+The client. Construct it with an API token, or through the builder for
+non-default configuration.
+
+```rust
+use nvisy_sdk::{Nvisy, Result};
+
+let client = Nvisy::with_api_key("your-api-token")?;
+```
+
+### NvisyBuilder
+
+```rust
+use std::time::Duration;
+
+let client = Nvisy::builder()
+    .with_api_key("your-api-token")           // Required
+    .with_base_url("https://api.nvisy.com")   // Optional
+    .with_user_agent("MyApp/1.0.0")           // Optional
+    .with_timeout(Duration::from_secs(30))    // Optional
+    .with_max_retries(3u32)                   // Optional
+    .build()?;
+```
+
+Accessors: `client.base_url()`, `client.timeout()`.
+
+### Constants
+
+| Constant | Description |
+|----------|-------------|
+| `DEFAULT_BASE_URL` | Default API endpoint |
+| `DEFAULT_TIMEOUT` | Default request timeout |
+| `DEFAULT_MAX_RETRIES` | Default retry attempts |
+| `DEFAULT_USER_AGENT` | Default user agent string |
+
+## MonitorService
+
+Health monitoring, implemented for `Nvisy`. Bring the trait into scope to use
+its methods.
+
+```rust
+use nvisy_sdk::service::MonitorService;
+
+let health = client.health(None).await?;
+println!("{:?}", health.status);
+```
+
+```rust
+fn health(&self, options: Option<&CheckHealth>) -> impl Future<Output = Result<Health>> + Send;
+```
+
+### Models
+
+`Health`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | `ServiceStatus` | Overall service status |
+| `checks` | `Vec<ComponentCheck>` | Per-component results |
+| `timestamp` | `Timestamp` | When the check ran |
+
+`ComponentCheck`: `name: String`, `status: ServiceStatus`.
+
+`CheckHealth`: `use_cache: Option<bool>`.
+
+## Errors
+
+`Result<T>` is an alias for `std::result::Result<T, Error>`.
+
+| Variant | Source |
+|---------|--------|
+| `Error::Http` | Middleware/transport failure |
+| `Error::Reqwest` | HTTP client error |
+| `Error::Serialization` | JSON encoding or decoding |
+| `Error::Config` | Invalid builder configuration |
+| `Error::UrlParse` | Malformed base URL |
+| `Error::Io` | I/O failure |
+| `Error::Api(String)` | API returned an error |
+
+```rust
+match client.health(None).await {
+    Ok(health) => println!("{:?}", health.status),
+    Err(error) => eprintln!("health check failed: {error}"),
+}
+```

@@ -1,0 +1,33 @@
+# OS
+Thumbs.db
+.DS_Store
+
+# Editors
+.vs/
+.vscode/
+.idea/
+.fleet/
+.zed/
+
+# Generated
+*.pem
+*.backup
+coverage/
+
+# Output
+dist/
+build/
+output/
+
+# Environment
+.env*
+!.env.example
+
+# Logs
+logs/
+*.log
+*.log*
+
+# Other
+.ignore*/
+LLM.md

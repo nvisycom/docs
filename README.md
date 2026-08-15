@@ -1,43 +1,54 @@
-# Mintlify Starter Kit
+# Nvisy Docs
 
-Use the starter kit to get your docs deployed and ready to customize.
+Documentation site for Nvisy, the open-source multimodal redaction API.
+Built with [Mintlify](https://mintlify.com) and deployed to
+[docs.nvisy.com](https://docs.nvisy.com).
 
-Click the green **Use this template** button at the top of this repo to copy the Mintlify starter kit. The starter kit contains examples with
+> [!WARNING]
+> **Active development: API not stable.** This project is under active
+> development. Public APIs, configuration shapes, on-disk formats, and
+> wire protocols may change without notice between releases. Pages here
+> track `main` and may describe unreleased behavior.
 
-- Guide pages
-- Navigation
-- Customizations
-- API reference pages
-- Use of popular components
+## Contents
 
-**[Follow the full quickstart guide](https://starter.mintlify.com/quickstart)**
+- **Overview:** Introduction, quickstart, and FAQ
+- **Features:** Redaction workflow, AI detection, supported formats, audit trails, integrations
+- **Deployment:** Cloud and on-premise setup, requirements, and installation
+- **API Reference:** REST endpoints generated from [`api-reference/openapi.json`](api-reference/openapi.json)
+- **SDKs:** TypeScript and Python quickstarts, API references, and examples
 
-## Development
+## Quick Start
 
-Install the [Mintlify CLI](https://www.npmjs.com/package/mint) to preview your documentation changes locally. To install, use the following command:
+Install the Mintlify CLI and start the dev server on `localhost:3000`:
 
+```bash
+make install
+make dev
 ```
-npm i -g mint
+
+Navigation, theming, and tabs are configured in
+[`docs.json`](docs.json). Pages are MDX files whose paths match the entries
+under `navigation`.
+
+## Checks
+
+Validate the OpenAPI spec and check for broken internal links:
+
+```bash
+make check
 ```
 
-Run the following command at the root of your documentation, where your `docs.json` is located:
+Run this before opening a pull request. Deploys happen automatically on
+merge to `main` via the Mintlify GitHub app.
 
-```
-mint dev
-```
+## License
 
-View your local preview at `http://localhost:3000`.
+MIT License, see [LICENSE.txt](LICENSE.txt)
 
-## Publishing changes
+## Support
 
-Install our GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app) to propagate changes from your repo to your deployment. Changes are deployed to production automatically after pushing to the default branch.
-
-## Need help?
-
-### Troubleshooting
-
-- If your dev environment isn't running: Run `mint update` to ensure you have the most recent version of the CLI.
-- If a page loads as a 404: Make sure you are running in a folder with a valid `docs.json`.
-
-### Resources
-- [Mintlify documentation](https://mintlify.com/docs)
+- **Documentation:** [docs.nvisy.com](https://docs.nvisy.com)
+- **Issues:** [GitHub Issues](https://github.com/nvisycom/docs/issues)
+- **Email:** [support@nvisy.com](mailto:support@nvisy.com)
+- **API Status:** [nvisy.openstatus.dev](https://nvisy.openstatus.dev)

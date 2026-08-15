@@ -1,0 +1,163 @@
+---
+title: "Quick Start"
+description: "Install and get started with the TypeScript SDK in minutes"
+---
+
+## Installation
+
+Install the Nvisy SDK from npm:
+
+<CodeGroup>
+
+```bash npm
+npm install @nvisy/sdk
+```
+
+```bash yarn
+yarn add @nvisy/sdk
+```
+
+```bash pnpm
+pnpm add @nvisy/sdk
+```
+
+</CodeGroup>
+
+<Card title="NPM Package" icon="npm" href="https://www.npmjs.com/package/@nvisy/sdk">
+  View the package on npm
+</Card>
+
+## Requirements
+
+- Node.js 20 or later (or any ES2022+ runtime with `fetch` and a global `File`)
+- An API token — create one under **API Tokens** in your account settings
+
+<Note>
+  Uploads construct a `File`, which Node.js exposes globally from version 20
+  onwards. On Node.js 18, import it explicitly with
+  `import { File } from "node:buffer"`.
+</Note>
+
+## Your First Request
+
+Construct a client with your API token and read your account:
+
+```typescript
+import { Nvisy } from "@nvisy/sdk";
+
+const client = new Nvisy({ apiToken: process.env.NVISY_API_TOKEN! });
+
+const account = await client.account.getAccount();
+const workspaces = await client.workspaces.listWorkspaces();
+
+console.log(account.username, workspaces.items.length);
+```
+
+<Tip>
+  Everything except authentication and account management is scoped to a
+  workspace, identified by its slug. List your workspaces first to find it.
+</Tip>
+
+## Configuration
+
+The constructor accepts additional options:
+
+```typescript
+const client = new Nvisy({
+  apiToken: "your-api-token",       // Required
+  baseUrl: "https://api.nvisy.com", // Optional
+  userAgent: "MyApp/1.0.0",         // Optional
+  withLogging: true,                // Optional — debug logging
+  headers: {                        // Optional
+    "X-Custom-Header": "value",
+  },
+});
+```
+
+| Option | Type | Required | Default |
+|--------|------|----------|---------|
+| `apiToken` | `string` | Yes | — |
+| `baseUrl` | `string` | No | `https://api.nvisy.com` |
+| `userAgent` | `string` | No | `@nvisy/sdk v.<version>` |
+| `withLogging` | `boolean` | No | `false` |
+| `headers` | `Record<string, string>` | No | — |
+
+## The Redaction Workflow
+
+Redaction is a two-phase process: a run first **detects** sensitive data, then
+you **apply** redactions after reviewing the findings.
+
+<Steps>
+  <Step title="Upload a file">
+    ```typescript
+    const [file] = await client.files.uploadFiles(workspaceSlug, blob);
+    ```
+  </Step>
+  <Step title="Start a run against a pipeline">
+    Creation returns immediately; analysis continues in the background.
+
+    ```typescript
+    let run = await client.runs.createRun(workspaceSlug, pipelineSlug, {
+      fileId: file.id,
+    });
+    ```
+  </Step>
+  <Step title="Wait for analysis to finish">
+    Subscribe to the run's event stream. It emits the current status
+    immediately, then each transition, and ends once the run settles.
+
+    ```typescript
+    const response = await client.runs.events(workspaceSlug, run.id);
+    const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
+
+    let status = run.status;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      for (const line of value.split("\n")) {
+        if (!line.startsWith("data:")) continue;
+        ({ status } = JSON.parse(line.slice(5)));
+      }
+    }
+
+    if (status !== "analyzed") {
+      throw new Error(`Run ${run.id} ended as ${status}`);
+    }
+    ```
+  </Step>
+  <Step title="Review detections">
+    ```typescript
+    const audit = await client.runs.getDetections(workspaceSlug, run.id);
+    ```
+  </Step>
+  <Step title="Apply redactions">
+    ```typescript
+    const redacted = await client.runs.redact(workspaceSlug, run.id);
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  A pipeline defines *how* a document is analyzed, and a policy defines *what*
+  is considered sensitive. Create them once, then reuse across runs.
+</Note>
+
+<Tip>
+  The run row in Postgres is the source of truth, so a missed broadcast is
+  recoverable — re-read the run with `getRun` if a connection drops. Note that
+  the native `EventSource` cannot send an `Authorization` header, which is why
+  the SDK streams over `fetch`.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="code" href="/sdks/typescript/api-reference">
+    Every service and method
+  </Card>
+  <Card title="Examples" icon="lightbulb" href="/sdks/typescript/examples">
+    End-to-end patterns
+  </Card>
+</CardGroup>

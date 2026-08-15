@@ -1,80 +1,163 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Redact your first document with Nvisy"
 ---
 
-## Get started in three steps
+This guide takes you from an API token to a redacted document.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+- An Nvisy account, or a [self-hosted deployment](/deployment/on-premise/getting-started)
+- An API token from **API Tokens** in your account settings
+- A workspace — create one in the app, or with `POST /workspaces/`
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+<Tip>
+  Export your token so the examples below can pick it up:
+  `export NVISY_API_TOKEN="..."`
+</Tip>
 
-### Step 2: Deploy your changes
+## Install an SDK
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+<CodeGroup>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+```bash TypeScript
+npm install @nvisy/sdk
+```
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+```bash Python
+pip install nvisy-sdk
+```
 
-### Step 3: Go live
+```toml Rust
+# Cargo.toml
+nvisy-sdk = "0.1"
+```
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+</CodeGroup>
 
-## Next steps
+The TypeScript SDK has full API coverage and is the reference implementation.
+The Python and Rust SDKs currently provide configured HTTP clients.
 
-Now that you have your docs running, explore these key features:
+## Verify Your Connection
+
+<CodeGroup>
+
+```typescript TypeScript
+import { Nvisy } from "@nvisy/sdk";
+
+const client = new Nvisy({ apiToken: process.env.NVISY_API_TOKEN! });
+
+const workspaces = await client.workspaces.listWorkspaces();
+console.log(workspaces.items.map((workspace) => workspace.slug));
+```
+
+```bash cURL
+curl https://api.nvisy.com/workspaces/ \
+  -H "Authorization: Bearer $NVISY_API_TOKEN"
+```
+
+</CodeGroup>
+
+## Redact a Document
+
+Redaction is deliberately two-phase: a run first **detects** sensitive data,
+and nothing is modified until you **apply** redactions.
+
+<Steps>
+  <Step title="Upload a file">
+    ```typescript
+    import { readFile } from "node:fs/promises";
+
+    const workspaceSlug = "acme";
+    const bytes = await readFile("./contract.pdf");
+
+    const [file] = await client.files.uploadFiles(
+      workspaceSlug,
+      new File([bytes], "contract.pdf", { type: "application/pdf" }),
+    );
+    ```
+  </Step>
+
+  <Step title="Start a detection run">
+    ```typescript
+    let run = await client.runs.createRun(workspaceSlug, "default", {
+      fileId: file.id,
+    });
+    ```
+
+    Runs move through `queued` → `analyzing` → `analyzed`.
+  </Step>
+
+  <Step title="Wait for detection to finish">
+    Subscribe to the run's event stream. It emits the current status
+    immediately, then each transition, and ends once the run settles.
+
+    ```typescript
+    const events = await client.runs.events(workspaceSlug, run.id);
+    const reader = events.body!.pipeThrough(new TextDecoderStream()).getReader();
+
+    let status = run.status;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      for (const line of value.split("\n")) {
+        if (!line.startsWith("data:")) continue;
+        ({ status } = JSON.parse(line.slice(5)));
+      }
+    }
+
+    if (status !== "analyzed") {
+      throw new Error(`Run ${run.id} ended as ${status}`);
+    }
+    ```
+  </Step>
+
+  <Step title="Review what was found">
+    ```typescript
+    const audit = await client.runs.getDetections(workspaceSlug, run.id);
+    console.log(`${audit.parts.length} parts analyzed`);
+    ```
+  </Step>
+
+  <Step title="Apply redactions">
+    ```typescript
+    const completed = await client.runs.redact(workspaceSlug, run.id);
+    console.log(completed.status, completed.outputFileId);
+    ```
+  </Step>
+
+  <Step title="Download the result">
+    ```typescript
+    import { writeFile } from "node:fs/promises";
+
+    const response = await client.files.downloadFile(
+      workspaceSlug,
+      completed.outputFileId!,
+    );
+
+    await writeFile(
+      "./contract-redacted.pdf",
+      Buffer.from(await response.arrayBuffer()),
+    );
+    ```
+  </Step>
+</Steps>
+
+## Next Steps
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Redaction Workflow" icon="workflow" href="/features/redaction-workflow">
+    How detection and redaction fit together
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Every endpoint, generated from the spec
+  </Card>
+  <Card title="TypeScript SDK" icon="js" href="/sdks/typescript/quickstart">
+    Full API coverage
+  </Card>
+  <Card title="Audit Trails" icon="shield-check" href="/features/audit-trails">
+    Export run audits for archiving
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

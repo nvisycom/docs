@@ -1,0 +1,96 @@
+---
+title: "Examples"
+description: "Common usage patterns with the Rust SDK"
+---
+
+<Warning>
+  The Rust SDK currently covers client construction and health monitoring.
+  Redaction services are not yet exposed. For full API coverage today, use the
+  [TypeScript SDK](/sdks/typescript/examples).
+</Warning>
+
+## Health Check
+
+```rust
+use nvisy_sdk::service::MonitorService;
+use nvisy_sdk::{Nvisy, Result};
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let api_key = std::env::var("NVISY_API_KEY").expect("NVISY_API_KEY must be set");
+    let client = Nvisy::with_api_key(&api_key)?;
+
+    println!("Base URL: {}", client.base_url());
+    println!("Timeout:  {:?}", client.timeout());
+
+    let health = client.health(None).await?;
+    println!("Status:   {:?}", health.status);
+    println!("Checks:   {}", health.checks.len());
+    println!("Checked:  {}", health.timestamp);
+
+    Ok(())
+}
+```
+
+## Inspecting Component Checks
+
+```rust
+let health = client.health(None).await?;
+
+for check in &health.checks {
+    println!("{}: {:?}", check.name, check.status);
+}
+```
+
+## Bypassing the Health Cache
+
+```rust
+use nvisy_sdk::model::CheckHealth;
+
+let options = CheckHealth { use_cache: Some(false) };
+let health = client.health(Some(&options)).await?;
+```
+
+## Custom Configuration
+
+```rust
+use std::time::Duration;
+
+use nvisy_sdk::{Nvisy, Result};
+
+fn build_client() -> Result<Nvisy> {
+    Nvisy::builder()
+        .with_api_key("your-api-token")
+        .with_base_url("http://127.0.0.1:8080")
+        .with_user_agent("MyApp/1.0.0")
+        .with_timeout(Duration::from_secs(60))
+        .with_max_retries(5u32)
+        .build()
+}
+```
+
+## Error Handling
+
+```rust
+use nvisy_sdk::{Error, Nvisy};
+
+match client.health(None).await {
+    Ok(health) => println!("{:?}", health.status),
+    Err(Error::Api(message)) => eprintln!("api rejected the request: {message}"),
+    Err(Error::Reqwest(error)) if error.is_timeout() => eprintln!("timed out"),
+    Err(error) => eprintln!("unexpected failure: {error}"),
+}
+```
+
+## Tracing
+
+Enable the `tracing` feature to emit spans for HTTP requests and client
+lifecycle events:
+
+```toml
+[dependencies]
+nvisy-sdk = { version = "0.1", features = ["tracing"] }
+```
+
+Spans are emitted under the `nvisy_sdk::client`, `nvisy_sdk::service`, and
+`nvisy_sdk::config` targets.

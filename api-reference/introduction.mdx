@@ -1,33 +1,180 @@
 ---
-title: 'Introduction'
-description: 'Example section for showcasing API endpoints'
+title: "Introduction"
+description: "Getting started with the Nvisy REST API"
 ---
 
-<Note>
-  If you're not looking to build API reference documentation, you can delete
-  this section by removing the api-reference folder.
-</Note>
+The Nvisy API is a REST API over HTTPS. It accepts and returns JSON, except
+where file content is uploaded or downloaded.
 
-## Welcome
+<Info>
+  The endpoint reference in this section is generated directly from the
+  server's OpenAPI specification, so it always reflects the deployed API.
+</Info>
 
-There are two ways to build API documentation: [OpenAPI](https://mintlify.com/docs/api-playground/openapi/setup) and [MDX components](https://mintlify.com/docs/api-playground/mdx/configuration). For the starter kit, we are using the following OpenAPI specification.
+## Base URL
 
-<Card
-  title="Plant Store Endpoints"
-  icon="leaf"
-  href="https://github.com/mintlify/starter/blob/main/api-reference/openapi.json"
->
-  View the OpenAPI specification file
-</Card>
+```
+https://api.nvisy.com
+```
+
+Self-hosted deployments serve the same API from their own host. A local
+development server defaults to `http://127.0.0.1:8080`.
 
 ## Authentication
 
-All API endpoints are authenticated using Bearer tokens and picked up from the specification file.
+All requests authenticate with a bearer token:
+
+```bash
+curl https://api.nvisy.com/workspaces/ \
+  -H "Authorization: Bearer $NVISY_API_TOKEN"
+```
+
+Create tokens under **API Tokens** in your account settings, or through the
+`/api-tokens/` endpoints.
+
+<Warning>
+  A token's secret is returned only once, at creation. Store it securely — it
+  cannot be retrieved afterwards.
+</Warning>
+
+## Workspaces
+
+Nearly every resource lives inside a workspace, addressed by its slug:
+
+```
+/workspaces/{workspaceSlug}/files/
+/workspaces/{workspaceSlug}/pipelines/
+/workspaces/{workspaceSlug}/runs/{runId}/
+```
+
+Workspaces are the tenancy and access-control boundary. List yours with
+`GET /workspaces/`.
+
+## The Redaction Workflow
+
+Redaction happens in two phases, so findings can be reviewed before anything is
+modified.
+
+<Steps>
+  <Step title="Upload a file">
+    `POST /workspaces/{workspaceSlug}/files/` — multipart upload, returns file
+    metadata including the file ID.
+  </Step>
+  <Step title="Start a run">
+    `POST /workspaces/{workspaceSlug}/pipelines/{pipelineSlug}/runs/` with a
+    `fileId`. The run analyzes the document against the pipeline's policy.
+  </Step>
+  <Step title="Review detections">
+    `GET /workspaces/{workspaceSlug}/runs/{runId}/detections/` returns the
+    audit of what was found.
+  </Step>
+  <Step title="Apply redactions">
+    `POST /workspaces/{workspaceSlug}/runs/{runId}/redactions/` produces the
+    redacted output file.
+  </Step>
+</Steps>
+
+### Run Status
+
+| Status | Meaning |
+|--------|---------|
+| `queued` | Enqueued for detection; no worker has started |
+| `analyzing` | A worker is actively analyzing the document |
+| `analyzed` | Detection finished; awaiting review |
+| `completed` | Redaction applied; run finished |
+| `failed` | Run failed — see the `error` field |
+| `cancelled` | Cancelled by a user |
+
+Subscribe to `GET /workspaces/{workspaceSlug}/runs/{runId}/events` for a
+server-sent events stream. It emits the current status immediately, then each
+transition, and ends once the run settles (`analyzed`, `failed`, or
+`cancelled`). Each event's `data` is a `RunStatusEvent`.
+
+<Note>
+  Authenticate the stream with a bearer token using a `fetch`-based client —
+  the native `EventSource` cannot send an `Authorization` header.
+
+  The run row is the source of truth, so a missed broadcast is recoverable:
+  re-read `GET /workspaces/{workspaceSlug}/runs/{runId}/` if a connection
+  drops.
+</Note>
+
+## Pipelines and Policies
+
+A **policy** defines what counts as sensitive. A **pipeline** defines how a
+document is processed and which policy applies. Both are workspace resources
+and are reused across runs.
+
+Browse the available detection labels and recognizers through
+`GET /catalog/labels/` and `GET /catalog/recognizers/`.
+
+## Pagination
+
+List endpoints are cursor-paginated:
+
+| Parameter | Description |
+|-----------|-------------|
+| `limit` | Maximum items to return |
+| `after` | Cursor pointing at the last item of the previous page |
+
+Responses contain `items`, `nextCursor`, and `total`. Continue while
+`nextCursor` is present.
+
+## Errors
+
+Errors return a JSON body alongside the HTTP status code:
 
 ```json
-"security": [
-  {
-    "bearerAuth": []
-  }
-]
+{
+  "name": "NotFound",
+  "message": "Workspace not found",
+  "resource": "workspace",
+  "suggestion": "Verify the workspace slug"
+}
 ```
+
+| Status | Meaning |
+|--------|---------|
+| `400` | Malformed request or failed validation |
+| `401` | Missing or invalid token |
+| `403` | Authenticated, but not permitted |
+| `404` | Resource does not exist |
+| `429` | Rate limit exceeded |
+| `5xx` | Server error — retry idempotent requests with backoff |
+
+<Warning>
+  Only retry automatically when the request is idempotent or the endpoint
+  documents an idempotency guarantee. A `POST` that uploads a file, creates a
+  run, or applies redactions may have succeeded before the response failed, so a
+  blind retry can duplicate work. Run creation accepts an `Idempotency-Key`
+  header — reuse one stable key across every attempt of the same logical run.
+</Warning>
+
+## Audit Export
+
+Every run's audit can be exported for long-term archiving:
+
+```
+GET /workspaces/{workspaceSlug}/runs/{runId}/audit/json
+GET /workspaces/{workspaceSlug}/runs/{runId}/audit/csv
+```
+
+## Webhooks
+
+Register endpoints under `/workspaces/{workspaceSlug}/webhooks/` to receive
+events as runs progress. Use the `test` endpoint to verify delivery before
+relying on it.
+
+## SDKs
+
+<CardGroup cols={3}>
+  <Card title="TypeScript" icon="js" href="/sdks/typescript/quickstart">
+    Full API coverage
+  </Card>
+  <Card title="Python" icon="python" href="/sdks/python/quickstart">
+    HTTP client
+  </Card>
+  <Card title="Rust" icon="rust" href="/sdks/rust/quickstart">
+    HTTP client
+  </Card>
+</CardGroup>

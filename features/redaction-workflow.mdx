@@ -1,0 +1,182 @@
+---
+title: "Redaction Workflow"
+description: "How detection and redaction fit together in Nvisy"
+---
+
+Redaction in Nvisy is deliberately two-phase. A run first **analyzes** a
+document and records what it found; nothing is modified until you **apply**
+redactions. That separation is what makes the process reviewable and
+auditable.
+
+## The Phases
+
+<Steps>
+  <Step title="Upload">
+    Add a file to a workspace. It is stored with its metadata and versioned.
+  </Step>
+  <Step title="Analyze">
+    Start a run against a pipeline. Recognition produces entities, each with a
+    label, confidence, and location.
+  </Step>
+  <Step title="Review">
+    Inspect the run's audit. Accept the policy's default treatment, or override
+    individual entities.
+  </Step>
+  <Step title="Redact">
+    Apply redactions. The engine writes a new output file and finalizes the
+    audit.
+  </Step>
+</Steps>
+
+## Run Status
+
+A run's `status` tells you which phase it is in:
+
+| Status | Meaning |
+|--------|---------|
+| `queued` | Enqueued for detection; no worker has started yet |
+| `analyzing` | A worker is actively analyzing the document |
+| `analyzed` | Detection finished; awaiting review |
+| `completed` | Redaction applied; run finished |
+| `failed` | Run failed — see the run's `error` field |
+| `cancelled` | Cancelled by a user |
+
+<Note>
+  A run stops at `analyzed` and stays there. It only reaches `completed` after
+  redaction is explicitly applied, so an unreviewed document is never
+  silently modified.
+</Note>
+
+Poll the run, or subscribe to its event stream for live progress:
+
+```
+GET /workspaces/{workspaceSlug}/runs/{runId}/
+GET /workspaces/{workspaceSlug}/runs/{runId}/events
+```
+
+## Pipelines and Policies
+
+A **pipeline** carries the detection and governance intent: a default scope and
+the policies to apply. A **policy** defines how recognized entities are treated.
+Both are workspace resources, created once and reused across runs.
+
+Recognition itself is server-wide — the built-in pattern set plus the
+recognizers available in the catalog:
+
+```
+GET /catalog/labels/
+GET /catalog/recognizers/
+```
+
+## The Audit
+
+`GET /workspaces/{workspaceSlug}/runs/{runId}/detections/` returns the run's
+audit, which has three parts:
+
+| Field | Description |
+|-------|-------------|
+| `body` | The main document body's entity group |
+| `parts` | One entry per container part, keyed by its part ID |
+| `context` | Recognition facts — languages, countries, OCR mode, correlation ID |
+
+Container formats expose their internal parts. A DOCX, for example, keys
+embedded media by its zip entry name, such as `word/media/image1.png`, so an
+image inside a document is analyzed in its own right.
+
+### Entities
+
+Each entity group is tagged by modality — `text`, `image`, `audio`, or
+`tabular` — and holds records with a consistent shape:
+
+| Field | Description |
+|-------|-------------|
+| `label` | What was recognized |
+| `confidence` | Recognition confidence |
+| `location` | Where it sits, in modality-native coordinates |
+| `language` | Detected language, where applicable |
+| `coref` | Coreference link to related mentions |
+| `audit` | Provenance events for this entity |
+
+Alongside each entity is an optional `review` — a reviewer-supplied override.
+When absent, the matching policy rule applies.
+
+## Redaction Operators
+
+What actually happens to an entity depends on its modality. A single policy
+rule can name an operator per modality:
+
+<Tabs>
+  <Tab title="Text">
+    `erase`, `keep`, `mask`, `replace`, `hash`, `hmac_hash`, `fake`,
+    `pseudonymize`, `encrypt`, `truncate`, `clamp`, `generalize_date`
+  </Tab>
+  <Tab title="Image">
+    `erase`, `keep`, `blur`, `pixelate`, `blackbox`
+  </Tab>
+  <Tab title="Audio">
+    `erase`, `keep`, `silence`, `beep`
+  </Tab>
+  <Tab title="Tabular">
+    `cell`, `drop_row`, `drop_column`
+  </Tab>
+</Tabs>
+
+<Tip>
+  `keep` is an operator like any other — it records that an entity was
+  recognized and deliberately left intact, which is often exactly what an
+  auditor needs to see.
+</Tip>
+
+Reversible operators such as `pseudonymize` and `encrypt` resolve against the
+per-policy vault and key provider, so the policy that authorized an override
+also governs how it can be undone.
+
+## Scope
+
+A run's scope carries per-document recognition settings — languages,
+jurisdictions, and OCR mode. Pipelines supply a default scope; a run can
+override it:
+
+```json
+{
+  "fileId": "...",
+  "scope": {
+    "languages": ["en"],
+    "ocrMode": { "kind": "force", "dpi": 300 }
+  }
+}
+```
+
+OCR modes are `auto`, `force`, and `never`.
+
+<Warning>
+  `auto` is intended to extract the text layer and render only pages that lack
+  one, but the text-layer parser that drives that decision is not in place yet
+  — today only `force` actually renders.
+</Warning>
+
+## Exporting the Audit
+
+Once a run completes, export its audit for archiving:
+
+```
+GET /workspaces/{workspaceSlug}/runs/{runId}/audit/json
+GET /workspaces/{workspaceSlug}/runs/{runId}/audit/csv
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Run the workflow end to end
+  </Card>
+  <Card title="Audit Trails" icon="shield-check" href="/features/audit-trails">
+    What the audit records
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Every endpoint
+  </Card>
+  <Card title="TypeScript SDK" icon="js" href="/sdks/typescript/quickstart">
+    Full API coverage
+  </Card>
+</CardGroup>

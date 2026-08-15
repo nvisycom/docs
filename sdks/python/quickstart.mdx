@@ -1,0 +1,77 @@
+---
+title: "Quick Start"
+description: "Install and get started with the Python SDK"
+---
+
+<Warning>
+  The Python SDK is in early development. It currently provides a configured
+  HTTP client with authentication, retries, and error handling — typed service
+  methods are not yet available. For full API coverage today, use the
+  [TypeScript SDK](/sdks/typescript/quickstart).
+</Warning>
+
+## Installation
+
+```bash
+pip install nvisy-sdk
+```
+
+<Card title="PyPI Package" icon="python" href="https://pypi.org/project/nvisy-sdk/">
+  View the package on PyPI
+</Card>
+
+## Requirements
+
+- Python 3.8 or later
+- An API token from your account settings
+
+## Your First Request
+
+```python
+from nvisy import Client
+
+client = Client({"api_key": "your-api-token"})
+
+response = client.get_sync("/health/")
+print(response)
+```
+
+## Configuration
+
+```python
+client = Client({
+    "api_key": "your-api-token",          # Required
+    "base_url": "https://api.nvisy.com",  # Optional
+    "timeout": 30.0,                       # Optional: 1.0-300.0 seconds
+    "max_retries": 3,                      # Optional: 0-5 attempts
+    "user_agent": "MyApp/1.0.0",          # Optional
+})
+```
+
+You can also build a client from the environment:
+
+```python
+client = Client.from_environment()
+```
+
+Or use the builder:
+
+```python
+client = (
+    Client.builder()
+    .with_api_key("your-api-token")
+    .with_timeout(60.0)
+    .build()
+)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="code" href="/sdks/python/api-reference">
+    Client, configuration, and errors
+  </Card>
+  <Card title="Examples" icon="lightbulb" href="/sdks/python/examples">
+    Sync and async usage
+  </Card>
+</CardGroup>

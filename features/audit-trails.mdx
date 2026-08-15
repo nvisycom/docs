@@ -1,0 +1,146 @@
+---
+title: "Audit Trails"
+description: "What Nvisy records about detection, redaction, and workspace activity"
+---
+
+Nvisy records two independent trails:
+
+<CardGroup cols={2}>
+  <Card title="Run Audit" icon="file-magnifying-glass">
+    Per-entity provenance — why each entity was recognized and what happened to it
+  </Card>
+  <Card title="Activity Log" icon="list-timeline">
+    Per-workspace actions — who did what, and when
+  </Card>
+</CardGroup>
+
+## Run Audit
+
+Every run produces an audit describing what detection found in one document:
+
+```
+GET /workspaces/{workspaceSlug}/runs/{runId}/detections/
+```
+
+| Field | Description |
+|-------|-------------|
+| `body` | The main document body's entity group |
+| `parts` | One entry per container part, keyed by its part ID |
+| `context` | Recognition facts the entities were scored against |
+
+### Context
+
+The context travels from analysis through to redaction, so the conditions an
+entity was recognized under are recorded alongside the finding:
+
+| Field | Description |
+|-------|-------------|
+| `languages` | Languages considered |
+| `countries` | Jurisdictions considered |
+| `ocrMode` | How pages were rendered for OCR |
+| `correlationId` | Correlates the run across services |
+| `metadata` | Additional recognition metadata |
+
+### Entity Provenance
+
+Each recognized entity carries an `audit` — a chain of events explaining how it
+reached its final state. Every event records a `kind`, `confidence`,
+`timestamp`, `source`, `parents`, and a `hash`.
+
+| Kind | Meaning |
+|------|---------|
+| `pattern` | Matched a deterministic pattern |
+| `model` | Recognized by a model |
+| `deduplication` | Merged with an overlapping detection |
+| `conflict` | Competing detections were reconciled |
+| `contested` | Recognizers disagreed |
+| `calibration` | Confidence was calibrated |
+| `refinement` | Boundaries or label were refined |
+| `redaction` | A redaction operator was applied |
+
+Because events carry `parents`, the trail is a graph rather than a flat list —
+you can trace a final entity back through every merge and reconciliation that
+produced it.
+
+<Note>
+  The `hash` on each event makes the chain verifiable: an audit can be checked
+  for tampering without reference to the original document content.
+</Note>
+
+### Reviewer Overrides
+
+Alongside each entity is an optional `review`, recording the reviewer's
+override and the policy authority it draws from. The policy reference is not
+only for the record — it selects which per-policy vault and key provider a
+reversible operator resolves against.
+
+When `review` is absent, the matching policy rule applied unmodified.
+
+## Exporting
+
+Run audits export in two formats for archiving:
+
+```
+GET /workspaces/{workspaceSlug}/runs/{runId}/audit/json
+GET /workspaces/{workspaceSlug}/runs/{runId}/audit/csv
+```
+
+```typescript
+const response = await client.runs.downloadAuditCsv(workspaceSlug, runId);
+await writeFile("./audit.csv", Buffer.from(await response.arrayBuffer()));
+```
+
+<Tip>
+  JSON preserves the full event graph and nested structure. CSV flattens it for
+  spreadsheet review and GRC tooling — prefer JSON when the provenance chain
+  itself matters.
+</Tip>
+
+## Activity Log
+
+Separately from run audits, each workspace records the actions taken within it:
+
+```
+GET /workspaces/{workspaceSlug}/activities/
+```
+
+| Field | Description |
+|-------|-------------|
+| `id` | Activity identifier |
+| `workspaceSlug` | Workspace the action occurred in |
+| `performedBy` | Who performed it |
+| `createdAt` | When it occurred |
+| `payload` | Typed payload, tagged by activity type |
+
+Payloads are typed per subject — files, pipelines, pipeline runs, policies,
+members, invites, connections, and webhooks each carry their own parameters.
+
+<Note>
+  Activity payloads store identifiers and parameters, not rendered sentences.
+  The client localizes the description, so the log stays language-neutral and
+  stable as wording changes.
+</Note>
+
+## Retention
+
+Files record their role, which drives retention scope:
+
+| Kind | Description |
+|------|-------------|
+| `original` | Source document, uploaded or imported |
+| `redacted` | Redacted output produced by a pipeline |
+| `audit` | Engine analysis blob, hidden from file lists |
+
+For deployments where retention is governed internally, see
+[on-premise deployment](/deployment/on-premise/getting-started).
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Redaction Workflow" icon="workflow" href="/features/redaction-workflow">
+    Where the audit fits in the run lifecycle
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Audit and activity endpoints
+  </Card>
+</CardGroup>

@@ -1,0 +1,581 @@
+---
+title: "On-Premises Deployment"
+description: "Deploy Nvisy in your own infrastructure for complete control and data sovereignty"
+---
+
+Deploy Nvisy within your own infrastructure for complete control over your data and security policies. Suited to organizations with strict data-residency needs.
+
+## Overview
+
+On-premises deployment gives you:
+- **Complete data sovereignty** - Documents never leave your network
+- **Full control** - Customize security, networking, and infrastructure
+- **Air-gap support** - Deploy in isolated environments
+- **Custom policies** - Enforce your own data-handling rules
+
+## System Requirements
+
+### Minimum Requirements
+
+| Component | Requirement |
+|-----------|-------------|
+| **OS** | Ubuntu 20.04+, RHEL 8+, or compatible Linux |
+| **CPU** | 8 cores (x86_64) |
+| **RAM** | 16 GB |
+| **Storage** | 100 GB SSD |
+| **Network** | 1 Gbps |
+| **Container Runtime** | Docker 20.10+ or Kubernetes 1.21+ |
+
+### Recommended for Production
+
+| Component | Requirement |
+|-----------|-------------|
+| **CPU** | 16+ cores with AVX2 support |
+| **RAM** | 32 GB+ |
+| **Storage** | 500 GB+ NVMe SSD |
+| **GPU** | NVIDIA GPU with 8GB+ VRAM (optional, for faster processing) |
+| **Network** | 10 Gbps with load balancer |
+| **HA Setup** | 3+ nodes for high availability |
+
+## Installation Methods
+
+<Tabs>
+  <Tab title="Docker Compose">
+    ### Docker Compose Installation
+
+    Quick setup for development and small deployments:
+
+    ```bash
+    # Download a versioned compose file and verify it before use.
+    # Replace 1.2.3 with the release you intend to run.
+    NVISY_VERSION=1.2.3
+    curl -fsSLO https://get.nvisy.com/${NVISY_VERSION}/docker-compose.yml
+    curl -fsSLO https://get.nvisy.com/${NVISY_VERSION}/docker-compose.yml.sha256
+    sha256sum -c docker-compose.yml.sha256
+
+    # Configure environment variables
+    cat > .env << EOF
+    NVISY_ADMIN_EMAIL=admin@yourcompany.com
+    NVISY_STORAGE_PATH=/var/lib/nvisy
+    EOF
+
+    # Start Nvisy
+    docker-compose up -d
+
+    # Verify installation
+    curl http://localhost:8080/health
+    ```
+
+    <Note>
+      Nvisy is open-source and needs no license key. Create an API token from
+      your account settings once the instance is up — see
+      [Authentication](/deployment/cloud/authentication).
+    </Note>
+  </Tab>
+
+  <Tab title="Kubernetes">
+    ### Kubernetes Installation
+
+    Production-ready deployment with Helm:
+
+    ```bash
+    # Add Nvisy Helm repository
+    helm repo add nvisy https://charts.nvisy.com
+    helm repo update
+
+    # Create namespace
+    kubectl create namespace nvisy
+
+    # Install Nvisy — pin the chart version and the image it deploys
+    helm install nvisy nvisy/nvisy \
+      --namespace nvisy \
+      --version 1.2.3 \
+      --set image.tag=1.2.3 \
+      --set ingress.enabled=true \
+      --set ingress.host=nvisy.yourcompany.com \
+      --set replicaCount=3
+
+    # Verify deployment
+    kubectl get pods -n nvisy
+    ```
+
+    Configuration options in `values.yaml`:
+
+    ```yaml
+    replicaCount: 3
+    
+    image:
+      repository: nvisy/redaction-service
+      # Pin a released tag, or a digest for a fully immutable reference.
+      tag: "1.2.3"
+      # digest: "sha256:<image-digest>"
+    
+    resources:
+      requests:
+        cpu: 4
+        memory: 8Gi
+      limits:
+        cpu: 8
+        memory: 16Gi
+    
+    persistence:
+      enabled: true
+      size: 100Gi
+      storageClass: fast-ssd
+    
+    postgresql:
+      enabled: true
+      auth:
+        database: nvisy
+        username: nvisy
+    
+    nats:
+      enabled: true
+    ```
+  </Tab>
+
+  <Tab title="Binary">
+    ### Binary Installation
+
+    Direct installation on Linux servers:
+
+    ```bash
+    # Download a versioned binary and verify its checksum before running it.
+    NVISY_VERSION=1.2.3
+    curl -fsSL https://get.nvisy.com/${NVISY_VERSION}/nvisy-linux-amd64 -o nvisy
+    curl -fsSL https://get.nvisy.com/${NVISY_VERSION}/nvisy-linux-amd64.sha256 \
+      -o nvisy.sha256
+    sha256sum -c nvisy.sha256
+    chmod +x nvisy
+
+    # Create configuration
+    cat > /etc/nvisy/config.yaml << EOF
+    server:
+      port: 8080
+      # Bind to loopback and let a TLS-terminating proxy handle public traffic.
+      host: 127.0.0.1
+    storage:
+      type: local
+      path: /var/lib/nvisy/data
+    database:
+      url: postgresql://nvisy:password@localhost:5432/nvisy
+    EOF
+
+    # Install as systemd service
+    sudo ./nvisy install
+
+    # Start service
+    sudo systemctl start nvisy
+    sudo systemctl enable nvisy
+
+    # Check status
+    sudo systemctl status nvisy
+    ```
+  </Tab>
+</Tabs>
+
+## Configuration
+
+### Environment Variables
+
+```bash
+# Core Configuration
+NVISY_SERVER_PORT=8080
+NVISY_LOG_LEVEL=info
+
+# Storage Configuration
+NVISY_STORAGE_TYPE=s3  # local, s3, azure, gcs
+NVISY_STORAGE_PATH=/var/lib/nvisy
+NVISY_S3_BUCKET=nvisy-documents
+NVISY_S3_REGION=us-east-1
+
+# Database Configuration
+NVISY_DB_URL=postgresql://user:pass@localhost:5432/nvisy
+
+# NATS Configuration (for job messaging)
+NVISY_NATS_URL=nats://localhost:4222
+
+# Security Configuration
+NVISY_API_KEY_REQUIRED=true
+NVISY_TLS_ENABLED=true
+NVISY_TLS_CERT=/etc/nvisy/certs/tls.crt
+NVISY_TLS_KEY=/etc/nvisy/certs/tls.key
+
+# AI Model Configuration
+NVISY_MODEL_PATH=/opt/nvisy/models
+NVISY_GPU_ENABLED=true
+NVISY_MAX_CONCURRENT_JOBS=10
+```
+
+### config.yaml
+
+```yaml
+server:
+  port: 8080
+  # Binding to all interfaces is only safe because TLS is enabled below.
+  # Without TLS, bind to 127.0.0.1 and front the service with a TLS proxy.
+  host: 0.0.0.0
+  tls:
+    enabled: true
+    cert_file: /etc/nvisy/certs/tls.crt
+    key_file: /etc/nvisy/certs/tls.key
+
+storage:
+  type: s3
+  s3:
+    bucket: nvisy-documents
+    region: us-east-1
+    endpoint: https://s3.amazonaws.com
+
+database:
+  # Docker Compose service name — use the Service DNS name on Kubernetes, or
+  # an explicit host/port under systemd.
+  url: postgresql://nvisy:password@postgres:5432/nvisy
+  max_connections: 100
+  ssl_mode: require
+
+ai:
+  model_path: /opt/nvisy/models
+  gpu_enabled: true
+  max_concurrent: 10
+  detection_types:
+    - pii
+    - phi
+    - financial
+
+security:
+  api_keys:
+    required: true
+    header_name: Authorization
+  cors:
+    enabled: true
+    origins:
+      - https://app.yourcompany.com
+  rate_limiting:
+    enabled: true
+    requests_per_second: 100
+
+monitoring:
+  metrics:
+    enabled: true
+    port: 9090
+  tracing:
+    enabled: true
+    endpoint: http://jaeger:14268/api/traces
+```
+
+## Networking
+
+### Firewall Rules
+
+Required ports:
+
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 443 | TCP | HTTPS, when a reverse proxy terminates TLS (the NGINX example below) |
+| 8080 | TCP | HTTP API on the service itself — keep internal, never public |
+| 8443 | TCP | HTTPS API, only when the service terminates TLS directly without a proxy |
+| 9090 | TCP | Metrics endpoint |
+| 5432 | TCP | PostgreSQL (if external) |
+| 4222 | TCP | NATS (if external) |
+
+Open exactly one public HTTPS port: `443` when a reverse proxy fronts the
+service, or `8443` when the service terminates TLS itself. Port `8080` carries
+cleartext and should only be reachable from the proxy or the local host.
+
+### Load Balancer Configuration
+
+Example NGINX configuration:
+
+```nginx
+upstream nvisy_backend {
+    least_conn;
+    server nvisy-1:8080 max_fails=3 fail_timeout=30s;
+    server nvisy-2:8080 max_fails=3 fail_timeout=30s;
+    server nvisy-3:8080 max_fails=3 fail_timeout=30s;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name nvisy.yourcompany.com;
+
+    ssl_certificate /etc/nginx/certs/tls.crt;
+    ssl_certificate_key /etc/nginx/certs/tls.key;
+
+    client_max_body_size 100M;
+
+    location / {
+        proxy_pass http://nvisy_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Timeouts for long-running redaction jobs
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+    }
+}
+```
+
+## High Availability Setup
+
+### Architecture
+
+```
+                    Load Balancer
+                         │
+        ┌────────────────┼────────────────┐
+        │                │                │
+    Nvisy-1          Nvisy-2          Nvisy-3
+        │                │                │
+        └────────────────┼────────────────┘
+                         │
+            ┌────────────┴────────────┐
+            │                         │
+    PostgreSQL (Primary/Replica)   NATS (Cluster)
+```
+
+### Database Replication
+
+PostgreSQL with streaming replication:
+
+```yaml
+# Primary node
+postgresql:
+  replication:
+    enabled: true
+    user: replicator
+    password: secure_password
+    
+# Replica nodes
+postgresql:
+  replication:
+    enabled: true
+    mode: slave
+    primary_host: postgres-primary
+    primary_port: 5432
+```
+
+## Backup & Recovery
+
+### Automated Backups
+
+```bash
+# PostgreSQL backup
+pg_dump nvisy | gzip > /backups/nvisy-$(date +%Y%m%d).sql.gz
+
+# Storage backup (if using local storage)
+tar -czf /backups/nvisy-storage-$(date +%Y%m%d).tar.gz /var/lib/nvisy
+
+# Kubernetes backup with Velero
+velero backup create nvisy-backup --include-namespaces nvisy
+```
+
+### Backup Schedule
+
+Recommended schedule:
+- **Database**: Daily full backup, hourly incrementals
+- **Storage**: Daily backup with 30-day retention
+- **Configuration**: Version-controlled in Git
+- **Disaster Recovery**: Test recovery quarterly
+
+## Monitoring
+
+### Metrics
+
+Nvisy exposes Prometheus metrics at `/metrics`:
+
+```yaml
+# Prometheus scrape config
+scrape_configs:
+  - job_name: 'nvisy'
+    static_configs:
+      - targets: ['nvisy:9090']
+```
+
+Key metrics:
+- `nvisy_requests_total` - Total API requests
+- `nvisy_processing_duration_seconds` - Processing time
+- `nvisy_detections_total` - Total detections
+- `nvisy_errors_total` - Error count
+
+### Health Checks
+
+```bash
+curl http://localhost:8080/health/
+```
+
+Response:
+```json
+{
+  "status": "healthy",
+  "checks": [
+    { "name": "postgres", "status": "healthy" },
+    { "name": "nats", "status": "healthy" },
+    { "name": "webhook", "status": "healthy" }
+  ],
+  "timestamp": "2025-01-01T00:00:00Z"
+}
+```
+
+`checks` is an array with one entry per dependency. The top-level `status` is
+`healthy` only when every check reports `healthy`.
+
+## Security Hardening
+
+### TLS Configuration
+
+Generate self-signed certificate (development):
+```bash
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout /etc/nvisy/certs/tls.key \
+  -out /etc/nvisy/certs/tls.crt
+```
+
+### API Key Management
+
+API tokens are managed through the API (or the account settings UI), not a
+local CLI:
+
+```
+GET    /api-tokens/
+POST   /api-tokens/
+DELETE /api-tokens/{tokenId}/
+```
+
+The token value is returned only when it is created. Store it in a secret
+manager and rotate it by creating the replacement before revoking the old one —
+see [Authentication](/deployment/cloud/authentication).
+
+### Network Isolation
+
+Run in isolated network:
+```yaml
+# Docker Compose network isolation
+networks:
+  nvisy_internal:
+    driver: bridge
+    internal: true
+  nvisy_external:
+    driver: bridge
+
+services:
+  nvisy:
+    networks:
+      - nvisy_external
+      - nvisy_internal
+  
+  postgres:
+    networks:
+      - nvisy_internal  # Not exposed externally
+```
+
+## Troubleshooting
+
+### Common Issues
+
+<AccordionGroup>
+  <Accordion title="Service won't start">
+    **Check logs:**
+    ```bash
+    docker logs nvisy
+    # or
+    journalctl -u nvisy -f
+    ```
+    
+    **Common causes:**
+    - Database connection failure
+    - Port already in use
+    - Insufficient permissions
+  </Accordion>
+
+  <Accordion title="Slow processing">
+    **Check resource usage:**
+    ```bash
+    docker stats nvisy
+    # or
+    kubectl top pods -n nvisy
+    ```
+    
+    **Solutions:**
+    - Increase CPU/memory allocation
+    - Enable GPU acceleration
+    - Increase concurrent job limit
+    - Check network latency to storage
+  </Accordion>
+
+  <Accordion title="Database connection errors">
+    **Verify database:**
+    ```bash
+    psql -h localhost -U nvisy -d nvisy -c "SELECT 1"
+    ```
+    
+    **Check:**
+    - Database URL is correct
+    - Credentials are valid
+    - Database is accessible from Nvisy
+    - SSL mode matches database config
+  </Accordion>
+</AccordionGroup>
+
+## Upgrading
+
+### Docker Compose Upgrade
+
+```bash
+# Backup database
+docker-compose exec postgres pg_dump nvisy > backup.sql
+
+# Pull new images
+docker-compose pull
+
+# Restart services
+docker-compose up -d
+
+# Verify upgrade
+curl http://localhost:8080/version
+```
+
+### Kubernetes Upgrade
+
+```bash
+# Backup
+velero backup create pre-upgrade-backup --include-namespaces nvisy
+
+# Upgrade with Helm
+helm upgrade nvisy nvisy/nvisy \
+  --namespace nvisy \
+  --version 2.0.0
+
+# Monitor rollout
+kubectl rollout status deployment/nvisy -n nvisy
+```
+
+## Support
+
+<CardGroup cols={2}>
+  <Card title="Enterprise Support" icon="headset">
+    Priority support with SLA for on-premises customers
+  </Card>
+  <Card title="Documentation" icon="book" href="/quickstart">
+    Complete deployment guides and API reference
+  </Card>
+  <Card title="Email Support" icon="envelope" href="mailto:support@nvisy.com">
+    support@nvisy.com
+  </Card>
+  <Card title="GitHub Issues" icon="github" href="https://github.com/nvisycom">
+    Report issues or request features
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration Reference" icon="gear" href="/deployment/on-premise/requirements">
+    View all configuration options
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Integrate with your applications
+  </Card>
+</CardGroup>

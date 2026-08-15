@@ -1,0 +1,107 @@
+---
+title: "API Reference"
+description: "Python SDK API reference"
+---
+
+<Warning>
+  The Python SDK currently exposes a configured HTTP client rather than typed
+  service methods. Endpoint paths and payloads are documented in the
+  [API Reference](/api-reference/introduction).
+</Warning>
+
+## Client
+
+```python
+from nvisy import Client
+
+client = Client(config)
+```
+
+`config` is a `ClientConfiguration` or a plain dict.
+
+### Configuration
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `api_key` | `str` | Yes | — | API token, 10+ chars |
+| `base_url` | `str` | No | `https://api.nvisy.com` | API endpoint |
+| `timeout` | `float` | No | `30.0` | Request timeout, 1.0–300.0 seconds |
+| `max_retries` | `int` | No | `3` | Retry attempts, 0–5 |
+| `user_agent` | `str` | No | — | Custom user agent |
+| `headers` | `dict[str, str]` | No | — | Extra headers |
+
+### Constructors
+
+```python
+Client(config)                # From a dict or ClientConfiguration
+Client.from_environment()     # From NVISY_* environment variables
+Client.builder()              # Returns a ClientBuilder
+```
+
+### Request Methods
+
+Async and synchronous variants of each verb:
+
+```python
+await client.get(path, **kwargs)
+await client.post(path, **kwargs)
+await client.put(path, **kwargs)
+await client.patch(path, **kwargs)
+await client.delete(path, **kwargs)
+
+client.get_sync(path, **kwargs)
+client.post_sync(path, **kwargs)
+client.put_sync(path, **kwargs)
+client.patch_sync(path, **kwargs)
+client.delete_sync(path, **kwargs)
+```
+
+### Lifecycle
+
+```python
+await client.close()   # async
+client.close_sync()    # sync
+```
+
+Both context manager protocols are supported — `with` and `async with`.
+
+## ClientBuilder
+
+```python
+Client.builder() \
+    .with_api_key("your-api-token") \
+    .with_base_url("https://api.nvisy.com") \
+    .with_timeout(60.0) \
+    .with_max_retries(5) \
+    .with_user_agent("MyApp/1.0.0") \
+    .with_header("X-Custom", "value") \
+    .with_headers({"X-A": "1", "X-B": "2"}) \
+    .with_debug(True) \
+    .build()
+```
+
+`ClientBuilder.from_environment()` seeds a builder from the environment.
+
+## Errors
+
+```python
+from nvisy import ApiError, ClientError, ConfigError, NetworkError
+```
+
+| Exception | Raised when |
+|-----------|-------------|
+| `ClientError` | Base class for all SDK errors |
+| `ConfigError` | Invalid configuration |
+| `NetworkError` | Connection failure or timeout |
+| `ApiError` | The API returned an error response |
+
+```python
+from nvisy import ApiError, NetworkError
+
+try:
+    response = client.get_sync("/workspaces/")
+except ApiError as error:
+    print(error.status_code, error, error.request_id)
+except NetworkError as error:
+    print("network failure:", error)
+```

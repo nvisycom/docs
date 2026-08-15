@@ -1,0 +1,346 @@
+---
+title: "System Requirements"
+description: "Hardware and software requirements for on-premises deployment"
+---
+
+<Warning>
+  The hardware figures on this page are **illustrative starting points**, not
+  measured requirements. Concurrency, IOPS, throughput, latency, and GPU
+  speed-up numbers have not been benchmarked against Nvisy workloads — they
+  describe generic system capacity. Size your deployment from a trial run with
+  your own documents, formats, and detection settings.
+</Warning>
+
+## Production Requirements
+
+| Component | Requirement |
+|-----------|-------------|
+| **Operating System** | Ubuntu 22.04 LTS or RHEL 9 |
+| **CPU** | 16+ cores with AVX2 support |
+| **RAM** | 32 GB+ |
+| **Storage** | 500 GB+ NVMe SSD |
+| **GPU** | NVIDIA GPU with 8GB+ VRAM (optional, for faster processing) |
+| **Network** | 10 Gbps with load balancer |
+| **Container Runtime** | Docker 20.10+ or Kubernetes 1.21+ |
+| **High Availability** | 3+ nodes for redundancy |
+
+## Operating System Support
+
+### Supported Distributions
+
+<Tabs>
+  <Tab title="Ubuntu">
+    - Ubuntu 20.04 LTS (Focal)
+    - Ubuntu 22.04 LTS (Jammy)
+    - Ubuntu 24.04 LTS (Noble)
+    
+    **Recommended:** Ubuntu 22.04 LTS
+  </Tab>
+  
+  <Tab title="Red Hat">
+    - RHEL 8.x
+    - RHEL 9.x
+    - Rocky Linux 8.x, 9.x
+    - AlmaLinux 8.x, 9.x
+    
+    **Recommended:** RHEL 9 or Rocky Linux 9
+  </Tab>
+  
+  <Tab title="Debian">
+    - Debian 11 (Bullseye)
+    - Debian 12 (Bookworm)
+    
+    **Recommended:** Debian 12
+  </Tab>
+  
+  <Tab title="Other">
+    - Amazon Linux 2023
+    - SUSE Linux Enterprise Server 15
+    
+    Other distributions may work but are not officially supported.
+  </Tab>
+</Tabs>
+
+## Hardware Requirements
+
+### CPU
+
+- 16+ cores (32+ threads)
+- Intel Xeon or AMD EPYC
+- AVX2 instruction set support
+- 3.0 GHz+ base clock
+
+For high-volume processing:
+- 32+ cores
+- Latest generation processors
+- AVX-512 support
+
+### Memory (RAM)
+
+- **32 GB** - A reasonable starting point for moderate concurrency
+- **64 GB+** - For high-volume deployments
+
+Actual memory per job depends on document size, format, and whether OCR runs,
+so treat concurrency figures as illustrative until you have measured your own
+workload.
+
+### Storage
+
+- **500 GB NVMe SSD** - Recommended starting point
+- **1+ TB NVMe SSD** - For high-volume or long-term log retention
+- RAID 10 configuration recommended for production
+
+### Storage Performance
+
+| Requirement | Minimum | Recommended |
+|-------------|---------|-------------|
+| **IOPS** | 3,000 | 10,000+ |
+| **Throughput** | 125 MB/s | 500 MB/s+ |
+| **Latency** | < 10ms | < 1ms |
+
+### GPU (Optional)
+
+GPU acceleration significantly improves processing speed:
+
+**Supported GPUs:**
+- NVIDIA T4 (16 GB)
+- NVIDIA A10 (24 GB)
+- NVIDIA A100 (40/80 GB)
+- NVIDIA L4 (24 GB)
+- NVIDIA L40 (48 GB)
+
+**Requirements:**
+- CUDA 11.8 or higher
+- NVIDIA driver 520.61.05 or higher
+- Compute capability 7.0+
+
+**Performance Improvement:**
+- A GPU can substantially reduce analysis time for model-driven detection and
+  OCR-heavy documents. The size of the improvement depends on the model,
+  document mix, and CPU baseline, so benchmark before sizing around it.
+- Recommended for high-volume deployments
+
+## Network Requirements
+
+### Bandwidth
+
+- **10 Gbps** - Recommended for production
+- **10+ Gbps with redundancy** - For high-volume enterprise deployments
+
+Bandwidth needs scale with document size and how much traffic moves between the
+service and remote object storage.
+
+### Ports
+
+Required network ports:
+
+| Port | Protocol | Purpose | Required |
+|------|----------|---------|----------|
+| 8080 | TCP | HTTP API | Yes |
+| 8443 | TCP | HTTPS API | Recommended |
+| 9090 | TCP | Metrics | Optional |
+| 5432 | TCP | PostgreSQL | Yes (if external) |
+| 4222 | TCP | NATS | Yes (if external) |
+
+### Firewall Rules
+
+Allow inbound traffic:
+```bash
+# HTTP API
+sudo ufw allow 8080/tcp
+
+# HTTPS API
+sudo ufw allow 8443/tcp
+
+# Metrics (from monitoring network only)
+sudo ufw allow from 10.0.0.0/8 to any port 9090
+```
+
+## Software Dependencies
+
+### Container Runtime
+
+<Tabs>
+  <Tab title="Docker">
+    **Required Version:** 20.10+
+    
+    **Installation:**
+    ```bash
+    # Ubuntu/Debian
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sudo sh get-docker.sh
+    
+    # Verify
+    docker --version
+    ```
+    
+    **Docker Compose:**
+    ```bash
+    # Required version: 2.0+
+    sudo apt-get install docker-compose-plugin
+    docker compose version
+    ```
+  </Tab>
+  
+  <Tab title="Kubernetes">
+    **Required Version:** 1.21+
+    
+    **Recommended:** 1.27+
+    
+    **Supported Distributions:**
+    - Vanilla Kubernetes
+    - Amazon EKS
+    - Google GKE
+    - Azure AKS
+    - Red Hat OpenShift 4.10+
+    - Rancher
+    
+    **Required Components:**
+    - kubectl CLI
+    - Helm 3.0+
+    - Persistent volume provisioner
+  </Tab>
+  
+  <Tab title="Podman">
+    **Supported:** Yes (experimental)
+    
+    **Version:** 4.0+
+    
+    **Note:** Limited testing, use Docker for production
+  </Tab>
+</Tabs>
+
+### Database
+
+**PostgreSQL** is required for metadata and audit logs:
+
+**Version:** 12+
+**Recommended:** 14+
+
+**Storage Requirements:**
+- 10 GB minimum
+- 50 GB recommended
+- Scales with audit log retention
+
+### Messaging
+
+**NATS** is required for job messaging between services:
+
+**Version:** 2.9+
+
+Memory needs scale with queued job volume; a small allocation is sufficient for
+typical deployments.
+
+## High Availability Requirements
+
+For production HA deployment:
+
+### Compute
+
+- **Minimum:** 3 nodes
+- **Recommended:** 5+ nodes
+- **Load balancer:** NGINX, HAProxy, or cloud LB
+
+### Database
+
+- **PostgreSQL:** Primary + 2 replicas
+- **Replication:** Streaming replication
+- **Automatic failover:** Patroni or similar
+
+### Messaging
+
+- **NATS:** Clustered (3+ nodes) for redundancy
+
+### Storage
+
+- **Shared storage:** NFS, S3, or similar
+- **Replication:** 3x minimum
+- **Backup:** Daily with off-site replication
+
+## Cloud Provider Recommendations
+
+### AWS
+
+**Instance Types:**
+- **Minimum:** t3.xlarge (4 vCPU, 16 GB)
+- **Recommended:** c6i.4xlarge (16 vCPU, 32 GB)
+- **With GPU:** g5.2xlarge (1x A10G GPU)
+
+**Storage:** EBS gp3 with 10,000 IOPS
+
+### Azure
+
+**VM Sizes:**
+- **Minimum:** Standard_D4s_v5 (4 vCPU, 16 GB)
+- **Recommended:** Standard_D16s_v5 (16 vCPU, 64 GB)
+- **With GPU:** Standard_NC8as_T4_v3 (1x T4 GPU)
+
+**Storage:** Premium SSD
+
+### Google Cloud
+
+**Machine Types:**
+- **Minimum:** n2-standard-8 (8 vCPU, 32 GB)
+- **Recommended:** n2-standard-16 (16 vCPU, 64 GB)
+- **With GPU:** n1-standard-8 + 1x T4
+
+**Storage:** SSD persistent disk
+
+## Capacity Planning
+
+### Concurrent Jobs
+
+Estimate required resources based on workload:
+
+These pairings are illustrative and unbenchmarked. The "concurrent jobs" column
+is a planning target, not a measured result — the worker-count guidance in
+[Performance Tuning](/deployment/on-premise/getting-started) is a conservative
+CPU-bound floor and will suggest a lower number for the same hardware.
+
+| Concurrent Jobs | CPU Cores | RAM | Storage IOPS |
+|----------------|-----------|-----|--------------|
+| 10 | 8 | 16 GB | 3,000 |
+| 25 | 16 | 32 GB | 10,000 |
+| 50 | 32 | 64 GB | 20,000 |
+| 100 | 64 | 128 GB | 40,000 |
+
+### Storage Sizing
+
+Calculate storage needs:
+
+```
+Total Storage = (Avg Document Size × Daily Documents × Retention Days) + Base Storage
+
+Example:
+(5 MB × 1000 documents × 30 days) + 50 GB = 200 GB
+```
+
+## Benchmarking
+
+Test your environment:
+
+```bash
+# CPU benchmark
+sysbench cpu --threads=16 --time=60 run
+
+# Memory benchmark
+sysbench memory --memory-total-size=100G run
+
+# Disk I/O benchmark
+fio --name=randwrite --ioengine=libaio --rw=randwrite \
+    --bs=4k --numjobs=4 --size=4g --runtime=60
+
+# Network benchmark
+iperf3 -c <server-ip> -t 60 -P 4
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/deployment/on-premise/installation">
+    Install Nvisy on-premises
+  </Card>
+  <Card title="Getting Started" icon="rocket" href="/deployment/on-premise/getting-started">
+    Configure and start using Nvisy
+  </Card>
+</CardGroup>

@@ -1,0 +1,100 @@
+---
+title: "Examples"
+description: "Common usage patterns with the Python SDK"
+---
+
+<Warning>
+  The Python SDK currently exposes a generic HTTP client. These examples call
+  endpoints by path — see the [API Reference](/api-reference/introduction) for
+  the full endpoint list.
+</Warning>
+
+## Synchronous Usage
+
+```python
+from nvisy import Client
+
+with Client({"api_key": "your-api-token"}) as client:
+    workspaces = client.get_sync("/workspaces/")
+    print(workspaces)
+```
+
+## Async Usage
+
+```python
+import asyncio
+
+from nvisy import Client
+
+
+async def main() -> None:
+    async with Client({"api_key": "your-api-token"}) as client:
+        workspaces = await client.get("/workspaces/")
+        print(workspaces)
+
+
+asyncio.run(main())
+```
+
+## Configuration from the Environment
+
+```python
+import os
+
+os.environ["NVISY_API_KEY"] = "your-api-token"
+
+client = Client.from_environment()
+```
+
+## Listing Files in a Workspace
+
+```python
+files = client.get_sync(
+    "/workspaces/acme/files/",
+    params={"limit": 50},
+)
+
+for item in files["items"]:
+    print(item["id"], item["originalFilename"])
+```
+
+## Starting a Pipeline Run
+
+```python
+run = client.post_sync(
+    "/workspaces/acme/pipelines/default/runs/",
+    json={"fileId": file_id},
+)
+
+print(run["id"], run["status"])
+```
+
+## Error Handling
+
+```python
+from nvisy import ApiError, ConfigError, NetworkError
+
+try:
+    response = client.get_sync("/workspaces/acme/")
+except ApiError as error:
+    print(f"[{error.status_code}] {error}")
+    if error.request_id:
+        print("request id:", error.request_id)
+except NetworkError as error:
+    print("network failure:", error)
+except ConfigError as error:
+    print("bad configuration:", error)
+```
+
+## Custom Timeouts and Retries
+
+```python
+client = (
+    Client.builder()
+    .with_api_key("your-api-token")
+    .with_timeout(120.0)
+    .with_max_retries(5)
+    .with_debug(True)
+    .build()
+)
+```

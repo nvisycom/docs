@@ -1,0 +1,94 @@
+---
+title: "Getting Started"
+description: "Start using Nvisy Cloud"
+---
+
+Nvisy Cloud is the fully managed deployment. There is no infrastructure to run
+— create a workspace, issue an API token, and start processing documents.
+
+<Card title="Sign up" icon="cloud" href="https://nvisy.com">
+  Create an account at nvisy.com
+</Card>
+
+## Setup
+
+<Steps>
+  <Step title="Create an account">
+    Sign up at [nvisy.com](https://nvisy.com).
+  </Step>
+  <Step title="Create a workspace">
+    Workspaces are the tenancy boundary — files, pipelines, policies, and
+    members all belong to one.
+  </Step>
+  <Step title="Issue an API token">
+    Under **API Tokens** in your account settings. Store it immediately; it is
+    shown only once.
+  </Step>
+</Steps>
+
+## Connect
+
+```bash
+export NVISY_API_TOKEN="..."
+```
+
+<CodeGroup>
+
+```typescript TypeScript
+import { Nvisy } from "@nvisy/sdk";
+
+const client = new Nvisy({ apiToken: process.env.NVISY_API_TOKEN! });
+
+const workspaces = await client.workspaces.listWorkspaces();
+```
+
+```bash cURL
+curl https://api.nvisy.com/workspaces/ \
+  -H "Authorization: Bearer $NVISY_API_TOKEN"
+```
+
+</CodeGroup>
+
+The cloud API is served from `https://api.nvisy.com`.
+
+## Your First Redaction
+
+See the [Quickstart](/quickstart) for the full upload → analyze → review →
+redact flow.
+
+## What Cloud Manages
+
+| Concern | Handled by |
+|---------|------------|
+| Postgres and NATS | Nvisy |
+| Engine workers and scaling | Nvisy |
+| Upgrades and migrations | Nvisy |
+| Workspace data and policies | You |
+
+## When to Self-Host
+
+Choose [on-premise](/deployment/on-premise/requirements) when documents must
+not leave your infrastructure, when you need to run inference locally with
+`ollama`, or when retention is governed by internal policy.
+
+<Note>
+  The API is the same in both deployments. Code written against cloud runs
+  unchanged against a self-hosted instance by pointing `baseUrl` at it.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/deployment/cloud/authentication">
+    Tokens, sessions, and rotation
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Redact your first document
+  </Card>
+  <Card title="Integrations" icon="plug" href="/features/integrations">
+    Connect storage and LLM providers
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Every endpoint
+  </Card>
+</CardGroup>
