@@ -3,6 +3,14 @@ title: "System Requirements"
 description: "Hardware and software requirements for on-premises deployment"
 ---
 
+<Warning>
+  The hardware figures on this page are **illustrative starting points**, not
+  measured requirements. Concurrency, IOPS, throughput, latency, and GPU
+  speed-up numbers have not been benchmarked against Nvisy workloads — they
+  describe generic system capacity. Size your deployment from a trial run with
+  your own documents, formats, and detection settings.
+</Warning>
+
 ## Production Requirements
 
 | Component | Requirement |
@@ -69,8 +77,12 @@ For high-volume processing:
 
 ### Memory (RAM)
 
-- **32 GB** - Supports ~25 concurrent jobs with adequate caching
-- **64 GB+** - For high-volume deployments (50+ concurrent jobs)
+- **32 GB** - A reasonable starting point for moderate concurrency
+- **64 GB+** - For high-volume deployments
+
+Actual memory per job depends on document size, format, and whether OCR runs,
+so treat concurrency figures as illustrative until you have measured your own
+workload.
 
 ### Storage
 
@@ -103,7 +115,9 @@ GPU acceleration significantly improves processing speed:
 - Compute capability 7.0+
 
 **Performance Improvement:**
-- 3-5x faster processing with GPU
+- A GPU can substantially reduce analysis time for model-driven detection and
+  OCR-heavy documents. The size of the improvement depends on the model,
+  document mix, and CPU baseline, so benchmark before sizing around it.
 - Recommended for high-volume deployments
 
 ## Network Requirements
@@ -111,7 +125,10 @@ GPU acceleration significantly improves processing speed:
 ### Bandwidth
 
 - **10 Gbps** - Recommended for production
-- **10+ Gbps with redundancy** - For enterprise deployments processing more than 1000 documents/hour
+- **10+ Gbps with redundancy** - For high-volume enterprise deployments
+
+Bandwidth needs scale with document size and how much traffic moves between the
+service and remote object storage.
 
 ### Ports
 
@@ -123,7 +140,7 @@ Required network ports:
 | 8443 | TCP | HTTPS API | Recommended |
 | 9090 | TCP | Metrics | Optional |
 | 5432 | TCP | PostgreSQL | Yes (if external) |
-| 6379 | TCP | Redis | Yes (if external) |
+| 4222 | TCP | NATS | Yes (if external) |
 
 ### Firewall Rules
 
@@ -205,16 +222,14 @@ sudo ufw allow from 10.0.0.0/8 to any port 9090
 - 50 GB recommended
 - Scales with audit log retention
 
-### Cache/Queue
+### Messaging
 
-**Redis** is required for job queuing and caching:
+**NATS** is required for job messaging between services:
 
-**Version:** 6.0+
-**Recommended:** 7.0+
+**Version:** 2.9+
 
-**Memory Requirements:**
-- 2 GB minimum
-- 8 GB recommended
+Memory needs scale with queued job volume; a small allocation is sufficient for
+typical deployments.
 
 ## High Availability Requirements
 
@@ -232,10 +247,9 @@ For production HA deployment:
 - **Replication:** Streaming replication
 - **Automatic failover:** Patroni or similar
 
-### Cache
+### Messaging
 
-- **Redis:** Sentinel mode (3+ nodes)
-- **Cluster mode:** For > 100 GB cache
+- **NATS:** Clustered (3+ nodes) for redundancy
 
 ### Storage
 
@@ -277,6 +291,11 @@ For production HA deployment:
 ### Concurrent Jobs
 
 Estimate required resources based on workload:
+
+These pairings are illustrative and unbenchmarked. The "concurrent jobs" column
+is a planning target, not a measured result — the worker-count guidance in
+[Performance Tuning](/deployment/on-premise/getting-started) is a conservative
+CPU-bound floor and will suggest a lower number for the same hardware.
 
 | Concurrent Jobs | CPU Cores | RAM | Storage IOPS |
 |----------------|-----------|-----|--------------|

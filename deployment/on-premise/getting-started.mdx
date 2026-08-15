@@ -5,7 +5,7 @@ description: "Configure and start using Nvisy on-premises"
 
 ## Quick Start
 
-Get Nvisy running in 5 minutes:
+Bring up a working on-premises instance in five steps:
 
 <Steps>
   <Step title="Verify Requirements">
@@ -32,27 +32,32 @@ Get Nvisy running in 5 minutes:
 Create a `.env` file with your configuration:
 
 ```bash
-# License
-NVISY_LICENSE_KEY=your_license_key_here
-
-# Server
-NVISY_SERVER_HOST=0.0.0.0
+# Server — bind to loopback until TLS terminates in front of the service
+NVISY_SERVER_HOST=127.0.0.1
 NVISY_SERVER_PORT=8080
 NVISY_LOG_LEVEL=info
 
 # Database
 NVISY_DB_URL=postgresql://nvisy:password@postgres:5432/nvisy
 
-# Redis
-NVISY_REDIS_URL=redis://redis:6379
+# Messaging
+NVISY_NATS_URL=nats://nats:4222
 
 # Storage
 NVISY_STORAGE_TYPE=local
 NVISY_STORAGE_PATH=/var/lib/nvisy/data
 
 # Security
-NVISY_TLS_ENABLED=false  # Set to true for production
+NVISY_TLS_ENABLED=false  # Only valid while the service is bound to loopback
 ```
+
+<Warning>
+  Do not combine `NVISY_SERVER_HOST=0.0.0.0` with `NVISY_TLS_ENABLED=false`.
+  That serves API tokens and document content in cleartext on every interface.
+  Before widening the bind address, either [enable TLS](#enabling-tls-https) on
+  the service or place it behind a TLS-terminating reverse proxy and keep the
+  service itself on loopback.
+</Warning>
 
 ### Configuration File
 
@@ -60,17 +65,15 @@ Alternatively, use `config.yaml`:
 
 ```yaml
 server:
-  host: 0.0.0.0
+  # Bind to loopback unless TLS is enabled or a TLS proxy sits in front.
+  host: 127.0.0.1
   port: 8080
-
-license:
-  key: your_license_key_here
 
 database:
   url: postgresql://nvisy:password@postgres:5432/nvisy
 
-redis:
-  url: redis://redis:6379
+nats:
+  url: nats://nats:4222
 
 storage:
   type: local
@@ -106,14 +109,18 @@ docker-compose ps
 Deploy with Helm:
 
 ```bash
-# Install
+# Install — always pin the chart version, and pin the image it deploys
 helm install nvisy nvisy/nvisy \
   --namespace nvisy \
   --create-namespace \
-  --set license.key=your_license_key
+  --version 1.2.3 \
+  --set image.tag=1.2.3
 
 # Check status
 kubectl get pods -n nvisy
+
+# Confirm the chart and image versions that were actually deployed
+helm list -n nvisy
 
 # View logs
 kubectl logs -f -n nvisy -l app=nvisy
@@ -137,60 +144,17 @@ sudo systemctl status nvisy
 sudo journalctl -u nvisy -f
 ```
 
-## Verification
-
-### Health Check
-
-Verify Nvisy is running:
-
-```bash
-curl http://localhost:8080/health
-```
-
-Expected response:
-
-```json
-{
-  "status": "healthy",
-  "version": "1.0.0",
-  "checks": {
-    "database": "ok",
-    "redis": "ok",
-    "storage": "ok",
-    "ai_models": "ok"
-  }
-}
-```
-
-### Test Redaction
-
-Test with a sample document:
-
-```bash
-curl -X POST http://localhost:8080/v1/documents/redact \
-  -F "file=@test-document.pdf" \
-  -F "detection_types=pii" \
-  -o redacted.pdf
-```
-
-## Creating API Keys
-
-Generate API keys for your applications:
-
-```bash
-# Create an API key
-docker-compose exec nvisy nvisy admin create-api-key \
-  --name "my-application" \
-  --permissions "redact,read"
-
-# List all keys
-docker-compose exec nvisy nvisy admin list-api-keys
-
-# Revoke a key
-docker-compose exec nvisy nvisy admin revoke-api-key --key-id KEY_ID
-```
-
 ## First Redaction
+
+### Create an API Token
+
+Tokens are created in your account settings under **API Tokens**, or through
+`POST /api-tokens/`. See [Authentication](/deployment/cloud/authentication) for
+the full lifecycle — the same endpoints apply to a self-hosted instance.
+
+```bash
+export NVISY_API_TOKEN="..."
+```
 
 ### Verify the Instance
 
@@ -207,7 +171,8 @@ A healthy instance reports each component:
     { "name": "postgres", "status": "healthy" },
     { "name": "nats", "status": "healthy" },
     { "name": "webhook", "status": "healthy" }
-  ]
+  ],
+  "timestamp": "2025-01-01T00:00:00Z"
 }
 ```
 
@@ -331,22 +296,10 @@ Import the Nvisy dashboard (ID: coming soon) or create custom dashboards using m
 
 ## User Management
 
-### Create Admin User
-
-```bash
-docker-compose exec nvisy nvisy admin create-user \
-  --email admin@yourcompany.com \
-  --role admin \
-  --password
-```
-
-### Assign Roles
-
-Available roles:
-- `admin` - Full system access
-- `operator` - Manage documents and settings
-- `user` - Redact documents only
-- `viewer` - Read-only access
+Accounts are created through `POST /auth/signup/`, and access is granted per
+workspace through memberships and invites rather than global roles. See
+[Authentication](/deployment/cloud/authentication) for the account and token
+endpoints.
 
 ## Backup Configuration
 
@@ -386,7 +339,12 @@ ai:
   max_concurrent_jobs: 20  # Adjust based on CPU cores
 ```
 
-Rule of thumb: `(CPU cores - 2) / 2`
+A conservative starting point is `(CPU cores - 2) / 2` — for a 16-core host,
+about 7 concurrent jobs. This is a floor for CPU-bound analysis, not a capacity
+figure: the [capacity planning table](/deployment/on-premise/requirements) sizes
+hardware for a target job count and assumes jobs spend much of their time
+waiting on I/O. Start low, measure with your own documents, and raise the limit
+only while latency stays acceptable.
 
 ### Database Connection Pool
 
@@ -394,14 +352,6 @@ Rule of thumb: `(CPU cores - 2) / 2`
 database:
   max_connections: 100
   idle_timeout: 300
-```
-
-### Redis Cache Size
-
-```yaml
-redis:
-  max_memory: 8gb
-  eviction_policy: allkeys-lru
 ```
 
 ### Enable GPU Acceleration

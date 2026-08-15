@@ -10,8 +10,10 @@ The client class. All services are exposed as lazily-constructed properties.
 ```typescript
 import { Nvisy } from "@nvisy/sdk";
 
-const client = new Nvisy(config: ClientConfig);
+const client = new Nvisy({ apiToken: process.env.NVISY_API_TOKEN! });
 ```
+
+The constructor takes a single `ClientConfig` object.
 
 ### ClientConfig
 
@@ -193,9 +195,41 @@ try {
 } catch (error) {
   if (error instanceof NvisyApiError) {
     if (error.isRetryable()) {
-      // safe to retry with backoff
+      // Retryable transport/server error. Retrying `redact` is not automatically
+      // safe — the API defines no idempotency for it, so re-read the run and
+      // check whether it already reached `completed` before trying again.
     }
     console.error(error.statusCode, error.message, error.suggestion);
   }
 }
 ```
+
+<Warning>
+  `isRetryable()` reports that the *error* is of a transient kind, not that the
+  *operation* is safe to repeat. Retry automatically only for reads or for
+  requests carrying an idempotency key.
+</Warning>
+
+### Idempotency Keys
+
+`createRun` accepts an `Idempotency-Key` header: repeating a request with the
+same key returns the existing run instead of starting a second one. Generate one
+key per logical run and reuse it across every retry of that run.
+
+```typescript
+const idempotencyKey = crypto.randomUUID();
+
+const run = await withRetry(() =>
+  client.runs.createRun(
+    workspaceSlug,
+    pipelineSlug,
+    { fileId: file.id },
+    { headers: { "Idempotency-Key": idempotencyKey } },
+  ),
+);
+```
+
+<Note>
+  Generating a fresh key inside the retry loop defeats the purpose — each
+  attempt would then look like a new run.
+</Note>

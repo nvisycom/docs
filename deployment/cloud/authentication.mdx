@@ -41,7 +41,9 @@ const created = await client.apiTokens.createApiToken({
   expiresIn: 2592000, // seconds
 });
 
-console.log(created.token); // shown only once
+// `created.token` is returned only once. Write it straight into a secret
+// manager or an environment variable — never log or print it.
+await secrets.store("NVISY_API_TOKEN", created.token);
 ```
 
 <Warning>
@@ -127,7 +129,8 @@ const session = await client.auth.loginAccount({
   rememberMe: true,
 });
 
-console.log(session.apiToken, session.expiresAt);
+// Keep `session.apiToken` out of logs; only its expiry is safe to print.
+console.log(session.expiresAt);
 ```
 
 <Note>

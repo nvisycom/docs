@@ -130,7 +130,15 @@ Errors return a JSON body alongside the HTTP status code:
 | `403` | Authenticated, but not permitted |
 | `404` | Resource does not exist |
 | `429` | Rate limit exceeded |
-| `5xx` | Server error — safe to retry with backoff |
+| `5xx` | Server error — retry idempotent requests with backoff |
+
+<Warning>
+  Only retry automatically when the request is idempotent or the endpoint
+  documents an idempotency guarantee. A `POST` that uploads a file, creates a
+  run, or applies redactions may have succeeded before the response failed, so a
+  blind retry can duplicate work. Run creation accepts an `Idempotency-Key`
+  header — reuse one stable key across every attempt of the same logical run.
+</Warning>
 
 ## Audit Export
 

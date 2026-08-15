@@ -46,12 +46,15 @@ On-premises deployment gives you:
     Quick setup for development and small deployments:
 
     ```bash
-    # Download the compose file
-    curl -O https://get.nvisy.com/docker-compose.yml
+    # Download a versioned compose file and verify it before use.
+    # Replace 1.2.3 with the release you intend to run.
+    NVISY_VERSION=1.2.3
+    curl -fsSLO https://get.nvisy.com/${NVISY_VERSION}/docker-compose.yml
+    curl -fsSLO https://get.nvisy.com/${NVISY_VERSION}/docker-compose.yml.sha256
+    sha256sum -c docker-compose.yml.sha256
 
     # Configure environment variables
     cat > .env << EOF
-    NVISY_LICENSE_KEY=your_license_key
     NVISY_ADMIN_EMAIL=admin@yourcompany.com
     NVISY_STORAGE_PATH=/var/lib/nvisy
     EOF
@@ -64,7 +67,9 @@ On-premises deployment gives you:
     ```
 
     <Note>
-      Replace `your_license_key` with your actual license key from the Nvisy dashboard.
+      Nvisy is open-source and needs no license key. Create an API token from
+      your account settings once the instance is up — see
+      [Authentication](/deployment/cloud/authentication).
     </Note>
   </Tab>
 
@@ -81,14 +86,11 @@ On-premises deployment gives you:
     # Create namespace
     kubectl create namespace nvisy
 
-    # Create license secret
-    kubectl create secret generic nvisy-license \
-      --from-literal=key=your_license_key \
-      -n nvisy
-
-    # Install Nvisy
+    # Install Nvisy — pin the chart version and the image it deploys
     helm install nvisy nvisy/nvisy \
       --namespace nvisy \
+      --version 1.2.3 \
+      --set image.tag=1.2.3 \
       --set ingress.enabled=true \
       --set ingress.host=nvisy.yourcompany.com \
       --set replicaCount=3
@@ -104,7 +106,9 @@ On-premises deployment gives you:
     
     image:
       repository: nvisy/redaction-service
-      tag: "latest"
+      # Pin a released tag, or a digest for a fully immutable reference.
+      tag: "1.2.3"
+      # digest: "sha256:<image-digest>"
     
     resources:
       requests:
@@ -125,9 +129,8 @@ On-premises deployment gives you:
         database: nvisy
         username: nvisy
     
-    redis:
+    nats:
       enabled: true
-      architecture: standalone
     ```
   </Tab>
 
@@ -137,16 +140,20 @@ On-premises deployment gives you:
     Direct installation on Linux servers:
 
     ```bash
-    # Download Nvisy binary
-    curl -L https://get.nvisy.com/nvisy-linux-amd64 -o nvisy
+    # Download a versioned binary and verify its checksum before running it.
+    NVISY_VERSION=1.2.3
+    curl -fsSL https://get.nvisy.com/${NVISY_VERSION}/nvisy-linux-amd64 -o nvisy
+    curl -fsSL https://get.nvisy.com/${NVISY_VERSION}/nvisy-linux-amd64.sha256 \
+      -o nvisy.sha256
+    sha256sum -c nvisy.sha256
     chmod +x nvisy
 
     # Create configuration
     cat > /etc/nvisy/config.yaml << EOF
-    license_key: your_license_key
     server:
       port: 8080
-      host: 0.0.0.0
+      # Bind to loopback and let a TLS-terminating proxy handle public traffic.
+      host: 127.0.0.1
     storage:
       type: local
       path: /var/lib/nvisy/data
@@ -173,7 +180,6 @@ On-premises deployment gives you:
 
 ```bash
 # Core Configuration
-NVISY_LICENSE_KEY=your_license_key
 NVISY_SERVER_PORT=8080
 NVISY_LOG_LEVEL=info
 
@@ -186,8 +192,8 @@ NVISY_S3_REGION=us-east-1
 # Database Configuration
 NVISY_DB_URL=postgresql://user:pass@localhost:5432/nvisy
 
-# Redis Configuration (for caching and queuing)
-NVISY_REDIS_URL=redis://localhost:6379
+# NATS Configuration (for job messaging)
+NVISY_NATS_URL=nats://localhost:4222
 
 # Security Configuration
 NVISY_API_KEY_REQUIRED=true
@@ -206,6 +212,8 @@ NVISY_MAX_CONCURRENT_JOBS=10
 ```yaml
 server:
   port: 8080
+  # Binding to all interfaces is only safe because TLS is enabled below.
+  # Without TLS, bind to 127.0.0.1 and front the service with a TLS proxy.
   host: 0.0.0.0
   tls:
     enabled: true
@@ -265,11 +273,16 @@ Required ports:
 
 | Port | Protocol | Purpose |
 |------|----------|---------|
-| 8080 | TCP | HTTP API |
-| 8443 | TCP | HTTPS API (if TLS enabled) |
+| 443 | TCP | HTTPS, when a reverse proxy terminates TLS (the NGINX example below) |
+| 8080 | TCP | HTTP API on the service itself — keep internal, never public |
+| 8443 | TCP | HTTPS API, only when the service terminates TLS directly without a proxy |
 | 9090 | TCP | Metrics endpoint |
 | 5432 | TCP | PostgreSQL (if external) |
-| 6379 | TCP | Redis (if external) |
+| 4222 | TCP | NATS (if external) |
+
+Open exactly one public HTTPS port: `443` when a reverse proxy fronts the
+service, or `8443` when the service terminates TLS itself. Port `8080` carries
+cleartext and should only be reachable from the proxy or the local host.
 
 ### Load Balancer Configuration
 
@@ -321,7 +334,7 @@ server {
                          │
             ┌────────────┴────────────┐
             │                         │
-    PostgreSQL (Primary/Replica)   Redis (Sentinel)
+    PostgreSQL (Primary/Replica)   NATS (Cluster)
 ```
 
 ### Database Replication
@@ -391,25 +404,24 @@ Key metrics:
 ### Health Checks
 
 ```bash
-# Basic health check
-curl http://localhost:8080/health
-
-# Detailed health check
-curl http://localhost:8080/health/detailed
+curl http://localhost:8080/health/
 ```
 
 Response:
 ```json
 {
   "status": "healthy",
-  "checks": {
-    "database": "ok",
-    "redis": "ok",
-    "storage": "ok",
-    "ai_models": "ok"
-  }
+  "checks": [
+    { "name": "postgres", "status": "healthy" },
+    { "name": "nats", "status": "healthy" },
+    { "name": "webhook", "status": "healthy" }
+  ],
+  "timestamp": "2025-01-01T00:00:00Z"
 }
 ```
+
+`checks` is an array with one entry per dependency. The top-level `status` is
+`healthy` only when every check reports `healthy`.
 
 ## Security Hardening
 
@@ -424,16 +436,18 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
 
 ### API Key Management
 
-```bash
-# Generate API key
-nvisy admin create-api-key --name "production-app" --permissions "redact,read"
+API tokens are managed through the API (or the account settings UI), not a
+local CLI:
 
-# List API keys
-nvisy admin list-api-keys
-
-# Revoke API key
-nvisy admin revoke-api-key --key-id abc123
 ```
+GET    /api-tokens/
+POST   /api-tokens/
+DELETE /api-tokens/{tokenId}/
+```
+
+The token value is returned only when it is created. Store it in a secret
+manager and rotate it by creating the replacement before revoking the old one —
+see [Authentication](/deployment/cloud/authentication).
 
 ### Network Isolation
 
@@ -472,7 +486,6 @@ services:
     ```
     
     **Common causes:**
-    - Invalid license key
     - Database connection failure
     - Port already in use
     - Insufficient permissions

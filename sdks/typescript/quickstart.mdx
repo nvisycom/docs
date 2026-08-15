@@ -29,8 +29,14 @@ pnpm add @nvisy/sdk
 
 ## Requirements
 
-- Node.js 18 or later (or any ES2022+ runtime with `fetch`)
+- Node.js 20 or later (or any ES2022+ runtime with `fetch` and a global `File`)
 - An API token — create one under **API Tokens** in your account settings
+
+<Note>
+  Uploads construct a `File`, which Node.js exposes globally from version 20
+  onwards. On Node.js 18, import it explicitly with
+  `import { File } from "node:buffer"`.
+</Note>
 
 ## Your First Request
 
@@ -88,10 +94,24 @@ you **apply** redactions after reviewing the findings.
     ```
   </Step>
   <Step title="Start a run against a pipeline">
+    Creation returns immediately; analysis continues in the background.
+
     ```typescript
-    const run = await client.runs.createRun(workspaceSlug, pipelineSlug, {
+    let run = await client.runs.createRun(workspaceSlug, pipelineSlug, {
       fileId: file.id,
     });
+    ```
+  </Step>
+  <Step title="Wait for analysis to finish">
+    ```typescript
+    while (run.status === "queued" || run.status === "analyzing") {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      run = await client.runs.getRun(workspaceSlug, run.id);
+    }
+
+    if (run.status !== "analyzed") {
+      throw new Error(`Run ${run.id} ended as ${run.status}`);
+    }
     ```
   </Step>
   <Step title="Review detections">
@@ -110,6 +130,12 @@ you **apply** redactions after reviewing the findings.
   A pipeline defines *how* a document is analyzed, and a policy defines *what*
   is considered sensitive. Create them once, then reuse across runs.
 </Note>
+
+<Tip>
+  Polling is the simplest way to wait. To avoid it, subscribe to the run's
+  event stream at `/workspaces/{workspaceSlug}/runs/{runId}/events` and react
+  when the run reaches `analyzed`.
+</Tip>
 
 ## Next Steps
 

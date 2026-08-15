@@ -40,9 +40,9 @@ define fetch-openapi
 	@curl -sf $(1) -o /dev/null || (echo "Error: Cannot connect to $(1)" && exit 1)
 	$(call print-make, "Generating OpenAPI specification from $(2) API...")
 	@curl -sf $(1) | python3 -m json.tool > $(OPENAPI_SPEC).tmp || (rm -f $(OPENAPI_SPEC).tmp && echo "Error: Invalid JSON from $(1)" && exit 1)
-	@mv $(OPENAPI_SPEC).tmp $(OPENAPI_SPEC)
 	$(call print-make, "Validating generated specification...")
-	@mint openapi-check $(OPENAPI_SPEC)
+	@mint openapi-check $(OPENAPI_SPEC).tmp || (rm -f $(OPENAPI_SPEC).tmp && echo "Error: Invalid OpenAPI spec from $(1); keeping existing $(OPENAPI_SPEC)" && exit 1)
+	@mv $(OPENAPI_SPEC).tmp $(OPENAPI_SPEC)
 	$(call print-make, "OpenAPI specification written to $(OPENAPI_SPEC)")
 endef
 

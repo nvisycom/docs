@@ -161,6 +161,12 @@ await writeFile("./audit.csv", Buffer.from(await csv.arrayBuffer()));
 
 ## Error Handling
 
+<Warning>
+  Wrap only reads or idempotency-keyed writes in an automatic retry. A `POST`
+  that uploads a file or applies redactions may have already succeeded when the
+  response failed, so retrying it blindly can duplicate work.
+</Warning>
+
 ```typescript
 import { NvisyApiError } from "@nvisy/sdk";
 
@@ -181,9 +187,19 @@ async function withRetry<T>(operation: () => Promise<T>, attempts = 3): Promise<
   }
 }
 
+// One stable key for every attempt of this logical run: if an earlier attempt
+// reached the server, the retry returns that same run instead of creating
+// a duplicate.
+const idempotencyKey = crypto.randomUUID();
+
 try {
   const run = await withRetry(() =>
-    client.runs.createRun(workspaceSlug, pipelineSlug, { fileId: file.id }),
+    client.runs.createRun(
+      workspaceSlug,
+      pipelineSlug,
+      { fileId: file.id },
+      { headers: { "Idempotency-Key": idempotencyKey } },
+    ),
   );
 } catch (error) {
   if (error instanceof NvisyApiError) {
@@ -202,7 +218,9 @@ const created = await client.apiTokens.createApiToken({
   expiresIn: 2592000, // seconds
 });
 
-console.log(created.token); // shown only once — store it now
+// `created.token` is returned only once. Write it straight into a secret
+// manager or an environment variable — never log or print it.
+await secrets.store("NVISY_API_TOKEN", created.token);
 
 await client.apiTokens.revokeApiToken(created.id);
 ```

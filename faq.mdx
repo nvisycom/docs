@@ -98,13 +98,15 @@ description: "Frequently asked questions about Nvisy"
   </Accordion>
   
   <Accordion title="Where is data stored?">
-    Self-hosting gives you complete control over data location. Nvisy is open-source, so the entire platform runs inside your own infrastructure — and pairing it with an `ollama` connection keeps inference local too, so no document content leaves your network.
+    Self-hosting puts data location under your control. Nvisy is open-source, so the platform itself runs inside your own infrastructure.
+    
+    Where documents actually reside still depends on how you configure it. A workspace can sync files to `s3`, `azure`, or `gcs`, and detection can call a hosted LLM provider — either will send content outside your network. Documents stay entirely within your infrastructure only when every configured storage target and integration is local or private, for example local storage paired with an `ollama` connection so inference runs in-network too.
     
     [On-premise deployment →](/deployment/on-premise/requirements)
   </Accordion>
   
   <Accordion title="Do you have access to my documents?">
-    With self-hosted deployment, your documents never leave your infrastructure. Retention is yours to set per workspace and override per pipeline, including `zeroDays` to delete data as soon as processing finishes.
+    With a self-hosted deployment, we have no access to your documents. They stay within the infrastructure you point Nvisy at — keep storage and model connections local or private if you need them to stay entirely in-network. Retention is yours to set per workspace and override per pipeline, including `zeroDays` to delete data as soon as processing finishes.
   </Accordion>
   
   <Accordion title="Can I audit what was redacted?">
@@ -197,12 +199,14 @@ description: "Frequently asked questions about Nvisy"
   </Accordion>
   
   <Accordion title="What are the system requirements for on-premises?">
-    Production requirements:
+    Illustrative production starting point:
     - 16+ CPU cores
     - 32 GB+ RAM
     - 500 GB+ NVMe SSD
     - 10 Gbps network
     - Docker or Kubernetes
+    
+    These are preliminary guidance rather than benchmarked minimums — size from a trial run with your own documents.
     
     [View complete requirements →](/deployment/on-premise/requirements)
   </Accordion>
@@ -236,7 +240,7 @@ description: "Frequently asked questions about Nvisy"
     - Detection types enabled
     - Current system load
     
-    Processing is usually under 10 seconds. Large documents and OCR-heavy scans take longer.
+    Typical documents finish in under 10 seconds, though this is not a committed figure — large documents, OCR-heavy scans, and busy instances take longer.
   </Accordion>
   
   <Accordion title="Why am I getting rate limited?">
