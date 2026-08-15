@@ -226,11 +226,10 @@ storage:
     bucket: nvisy-documents
     region: us-east-1
     endpoint: https://s3.amazonaws.com
-  retention:
-    documents: 30d
-    audit_logs: 7y
 
 database:
+  # Docker Compose service name — use the Service DNS name on Kubernetes, or
+  # an explicit host/port under systemd.
   url: postgresql://nvisy:password@postgres:5432/nvisy
   max_connections: 100
   ssl_mode: require

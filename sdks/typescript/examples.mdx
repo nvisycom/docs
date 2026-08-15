@@ -33,13 +33,24 @@ let run = await client.runs.createRun(workspaceSlug, pipelineSlug, {
   fileId: file.id,
 });
 
-// 3. Wait for detection to settle
-while (run.status === "queued" || run.status === "analyzing") {
-  await new Promise((resolve) => setTimeout(resolve, 2000));
-  run = await client.runs.getRun(workspaceSlug, run.id);
+// 3. Wait for detection to settle. The stream ends once the run settles.
+const events = await client.runs.events(workspaceSlug, run.id);
+const reader = events.body!.pipeThrough(new TextDecoderStream()).getReader();
+
+let status = run.status;
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+
+  for (const line of value.split("\n")) {
+    if (!line.startsWith("data:")) continue;
+    ({ status } = JSON.parse(line.slice(5)));
+  }
 }
 
-if (run.status !== "analyzed") {
+if (status !== "analyzed") {
+  run = await client.runs.getRun(workspaceSlug, run.id);
   throw new Error(`Run ${run.id} ended as ${run.status}: ${run.error ?? ""}`);
 }
 
@@ -71,20 +82,32 @@ const response = await client.files.downloadFile(
 await writeFile("./contract-redacted.pdf", Buffer.from(await response.arrayBuffer()));
 ```
 
-## Live Progress with Server-Sent Events
+## Reporting Live Progress
 
-Instead of polling, stream run status events:
+Each event's `data` is a `RunStatusEvent` — `{ runId, status }` — so the same
+stream can drive a progress indicator:
 
 ```typescript
-const response = await client.runs.events(workspaceSlug, run.id);
-const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
+const events = await client.runs.events(workspaceSlug, run.id);
+const reader = events.body!.pipeThrough(new TextDecoderStream()).getReader();
 
 while (true) {
   const { done, value } = await reader.read();
   if (done) break;
-  console.log(value);
+
+  for (const line of value.split("\n")) {
+    if (!line.startsWith("data:")) continue;
+    const event = JSON.parse(line.slice(5));
+    console.log(`run ${event.runId} is now ${event.status}`);
+  }
 }
 ```
+
+<Note>
+  The stream closes on its own once the run settles, so the loop terminates
+  without a timeout. If the connection drops early, re-read the run with
+  `getRun` — the run row is the source of truth.
+</Note>
 
 ## Batch Uploads
 

@@ -89,10 +89,27 @@ and nothing is modified until you **apply** redactions.
   </Step>
 
   <Step title="Wait for detection to finish">
+    Subscribe to the run's event stream. It emits the current status
+    immediately, then each transition, and ends once the run settles.
+
     ```typescript
-    while (run.status === "queued" || run.status === "analyzing") {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      run = await client.runs.getRun(workspaceSlug, run.id);
+    const events = await client.runs.events(workspaceSlug, run.id);
+    const reader = events.body!.pipeThrough(new TextDecoderStream()).getReader();
+
+    let status = run.status;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      for (const line of value.split("\n")) {
+        if (!line.startsWith("data:")) continue;
+        ({ status } = JSON.parse(line.slice(5)));
+      }
+    }
+
+    if (status !== "analyzed") {
+      throw new Error(`Run ${run.id} ended as ${status}`);
     }
     ```
   </Step>

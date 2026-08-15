@@ -103,14 +103,27 @@ you **apply** redactions after reviewing the findings.
     ```
   </Step>
   <Step title="Wait for analysis to finish">
+    Subscribe to the run's event stream. It emits the current status
+    immediately, then each transition, and ends once the run settles.
+
     ```typescript
-    while (run.status === "queued" || run.status === "analyzing") {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      run = await client.runs.getRun(workspaceSlug, run.id);
+    const response = await client.runs.events(workspaceSlug, run.id);
+    const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
+
+    let status = run.status;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      for (const line of value.split("\n")) {
+        if (!line.startsWith("data:")) continue;
+        ({ status } = JSON.parse(line.slice(5)));
+      }
     }
 
-    if (run.status !== "analyzed") {
-      throw new Error(`Run ${run.id} ended as ${run.status}`);
+    if (status !== "analyzed") {
+      throw new Error(`Run ${run.id} ended as ${status}`);
     }
     ```
   </Step>
@@ -132,9 +145,10 @@ you **apply** redactions after reviewing the findings.
 </Note>
 
 <Tip>
-  Polling is the simplest way to wait. To avoid it, subscribe to the run's
-  event stream at `/workspaces/{workspaceSlug}/runs/{runId}/events` and react
-  when the run reaches `analyzed`.
+  The run row in Postgres is the source of truth, so a missed broadcast is
+  recoverable — re-read the run with `getRun` if a connection drops. Note that
+  the native `EventSource` cannot send an `Authorization` header, which is why
+  the SDK streams over `fetch`.
 </Tip>
 
 ## Next Steps

@@ -85,9 +85,19 @@ modified.
 | `failed` | Run failed — see the `error` field |
 | `cancelled` | Cancelled by a user |
 
-Poll `GET /workspaces/{workspaceSlug}/runs/{runId}/` or subscribe to
-`GET /workspaces/{workspaceSlug}/runs/{runId}/events` for a server-sent events
-stream.
+Subscribe to `GET /workspaces/{workspaceSlug}/runs/{runId}/events` for a
+server-sent events stream. It emits the current status immediately, then each
+transition, and ends once the run settles (`analyzed`, `failed`, or
+`cancelled`). Each event's `data` is a `RunStatusEvent`.
+
+<Note>
+  Authenticate the stream with a bearer token using a `fetch`-based client —
+  the native `EventSource` cannot send an `Authorization` header.
+
+  The run row is the source of truth, so a missed broadcast is recoverable:
+  re-read `GET /workspaces/{workspaceSlug}/runs/{runId}/` if a connection
+  drops.
+</Note>
 
 ## Pipelines and Policies
 

@@ -29,7 +29,9 @@ Bring up a working on-premises instance in five steps:
 
 ### Environment Variables
 
-Create a `.env` file with your configuration:
+Create a `.env` file with your configuration. The example below uses Docker
+Compose service names — see [Connection hosts](#connection-hosts) for the
+Kubernetes and systemd equivalents.
 
 ```bash
 # Server — bind to loopback until TLS terminates in front of the service
@@ -37,10 +39,10 @@ NVISY_SERVER_HOST=127.0.0.1
 NVISY_SERVER_PORT=8080
 NVISY_LOG_LEVEL=info
 
-# Database
+# Database — `postgres` resolves via Docker Compose service discovery
 NVISY_DB_URL=postgresql://nvisy:password@postgres:5432/nvisy
 
-# Messaging
+# Messaging — `nats` resolves via Docker Compose service discovery
 NVISY_NATS_URL=nats://nats:4222
 
 # Storage
@@ -50,6 +52,53 @@ NVISY_STORAGE_PATH=/var/lib/nvisy/data
 # Security
 NVISY_TLS_ENABLED=false  # Only valid while the service is bound to loopback
 ```
+
+### Connection hosts
+
+The `postgres` and `nats` hostnames above are Docker Compose service names.
+They do not resolve under other deployment methods — use the form that matches
+how you installed Nvisy.
+
+<Tabs>
+  <Tab title="Docker Compose">
+    Compose resolves service names on its own network:
+
+    ```bash
+    NVISY_DB_URL=postgresql://nvisy:password@postgres:5432/nvisy
+    NVISY_NATS_URL=nats://nats:4222
+    ```
+  </Tab>
+  <Tab title="Kubernetes">
+    Use the Service DNS name. Within the same namespace the short name works;
+    across namespaces use the fully-qualified form:
+
+    ```bash
+    NVISY_DB_URL=postgresql://nvisy:password@nvisy-postgres.nvisy.svc.cluster.local:5432/nvisy
+    NVISY_NATS_URL=nats://nvisy-nats.nvisy.svc.cluster.local:4222
+    ```
+
+    Substitute the Service names your chart actually creates — check with
+    `kubectl get svc -n nvisy`.
+  </Tab>
+  <Tab title="Systemd">
+    There is no service discovery, so point at the host and port each service
+    listens on. When they run on the same machine, that is loopback:
+
+    ```bash
+    NVISY_DB_URL=postgresql://nvisy:password@127.0.0.1:5432/nvisy
+    NVISY_NATS_URL=nats://127.0.0.1:4222
+    ```
+
+    For dedicated hosts, use their addresses and ensure the firewall permits
+    the connection.
+  </Tab>
+</Tabs>
+
+<Warning>
+  Replace `password` with a real secret in every deployment method. Supply it
+  through a secret manager or an environment file with restricted permissions
+  rather than committing it.
+</Warning>
 
 <Warning>
   Do not combine `NVISY_SERVER_HOST=0.0.0.0` with `NVISY_TLS_ENABLED=false`.
@@ -69,6 +118,8 @@ server:
   host: 127.0.0.1
   port: 8080
 
+# Hostnames below are Docker Compose service names — see
+# "Connection hosts" above for Kubernetes and systemd equivalents.
 database:
   url: postgresql://nvisy:password@postgres:5432/nvisy
 
