@@ -2,8 +2,8 @@
     "openapi": "3.1.0",
     "info": {
         "title": "Nvisy API",
-        "summary": "Document processing and annotation platform",
-        "description": "Nvisy provides intelligent document processing, annotation, and analysis capabilities. This API enables document upload, OCR processing, embedding generation, and semantic search across your document collections.",
+        "summary": "Document detection and redaction platform",
+        "description": "Nvisy provides intelligent detection of sensitive content in documents, redaction pipelines, and reviewer workflows. This API enables document upload, detection analysis, redaction, and collaborative review across your workspaces.",
         "termsOfService": "https://nvisy.com/legal/terms-of-service",
         "contact": {
             "name": "Nvisy Support",
@@ -25080,12 +25080,20 @@
             "description": "Service health checks"
         },
         {
+            "name": "Capabilities",
+            "description": "Read-only reference data describing this deployment"
+        },
+        {
             "name": "Accounts",
             "description": "Account management and profile operations"
         },
         {
             "name": "Identities",
             "description": "Account sign-in methods: password and linked providers"
+        },
+        {
+            "name": "Avatars",
+            "description": "Public avatar image serving"
         },
         {
             "name": "Authentication",
@@ -25100,8 +25108,12 @@
             "description": "Workspace activity log and export"
         },
         {
-            "name": "Files",
-            "description": "File upload, download, and management"
+            "name": "Documents",
+            "description": "Document upload, download, and management"
+        },
+        {
+            "name": "Analytics",
+            "description": "Aggregate metrics over a workspace's documents"
         },
         {
             "name": "Members",
@@ -25124,6 +25136,10 @@
             "description": "Connection synchronization runs"
         },
         {
+            "name": "Providers",
+            "description": "Inference-provider configuration"
+        },
+        {
             "name": "Pipelines",
             "description": "Redaction pipeline configuration"
         },
@@ -25134,6 +25150,10 @@
         {
             "name": "Redactions",
             "description": "Redactions produced from a detection, with reviewer edits"
+        },
+        {
+            "name": "Reviews",
+            "description": "Document reviews, the review queue, and their discussion"
         },
         {
             "name": "Policies",
