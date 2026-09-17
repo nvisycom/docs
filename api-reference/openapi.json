@@ -5877,7 +5877,7 @@
         "/workspaces/{workspaceId}/documents": {
             "get": {
                 "tags": [
-                    "WorkspaceDocuments"
+                    "Documents"
                 ],
                 "summary": "List documents",
                 "description": "Lists documents in a workspace with cursor-based pagination. Use the `after` parameter with the `nextCursor` value from the response to fetch subsequent pages. Pass `hash` (a hex SHA-256) to find documents with identical content \u2014 a non-empty result means the document already exists, so an upload can be skipped.",
@@ -6025,7 +6025,7 @@
             },
             "post": {
                 "tags": [
-                    "WorkspaceDocuments"
+                    "Documents"
                 ],
                 "summary": "Upload documents",
                 "description": "Uploads one or more documents to a workspace. Each document is encrypted and streamed to storage. The batch is atomic: either every document is recorded, or on any failure none are and the request fails.",
@@ -6119,7 +6119,7 @@
         "/workspaces/{workspaceId}/documents/delete": {
             "post": {
                 "tags": [
-                    "WorkspaceDocuments"
+                    "Documents"
                 ],
                 "summary": "Delete documents",
                 "description": "Deletes several documents in one call. Idempotent: ids that resolve to live documents in the workspace are removed and returned in `deleted`; ids that are unknown, already deleted, or in another workspace are returned in `skipped`. Deletion is permanent \u2014 the documents' content cannot be recovered.",
@@ -6220,7 +6220,7 @@
         "/workspaces/{workspaceId}/documents/{documentId}": {
             "get": {
                 "tags": [
-                    "WorkspaceDocuments"
+                    "Documents"
                 ],
                 "summary": "Get document metadata",
                 "description": "Returns document metadata without downloading the document content.",
@@ -6300,7 +6300,7 @@
             },
             "delete": {
                 "tags": [
-                    "WorkspaceDocuments"
+                    "Documents"
                 ],
                 "summary": "Delete document",
                 "description": "Deletes a document: the record is retired and its blob reference dropped. The stored content is reclaimed later, once no other document references it and its retention window has passed. This is permanent \u2014 the document cannot be restored.",
@@ -6373,7 +6373,7 @@
             },
             "patch": {
                 "tags": [
-                    "WorkspaceDocuments"
+                    "Documents"
                 ],
                 "summary": "Update document",
                 "description": "Updates document metadata such as display name, tags, or metadata.",
@@ -6496,7 +6496,7 @@
         "/workspaces/{workspaceId}/documents/{documentId}/content": {
             "get": {
                 "tags": [
-                    "WorkspaceDocuments"
+                    "Documents"
                 ],
                 "summary": "Download document",
                 "description": "Downloads a document by ID. Returns the document content as a binary stream. The required permission depends on the document's kind: an original document needs DownloadOriginalDocuments, and a redacted output needs DownloadRedactedDocuments.",
@@ -7064,7 +7064,7 @@
         "/workspaces/{workspaceId}/pipelines/detections": {
             "get": {
                 "tags": [
-                    "WorkspaceDetections"
+                    "Detections"
                 ],
                 "summary": "List workspace detections",
                 "description": "Returns all detections across the workspace, most recent first, with optional status, document, pipeline, trigger-account, and trigger-type filters.",
@@ -7221,7 +7221,7 @@
         "/workspaces/{workspaceId}/pipelines/{pipelineId}/detections": {
             "get": {
                 "tags": [
-                    "WorkspaceDetections"
+                    "Detections"
                 ],
                 "summary": "List pipeline detections",
                 "description": "Returns detections for a specific pipeline, most recent first, with optional status, document, trigger-account, and trigger-type filters.",
@@ -7377,7 +7377,7 @@
             },
             "post": {
                 "tags": [
-                    "WorkspaceDetections"
+                    "Detections"
                 ],
                 "summary": "Start a detection",
                 "description": "Starts analysis for a document and returns 202 with the detection in the `pending` state; the analysis runs in the background. Watch the detection's status via the SSE stream at `.../detections/{detectionId}/events` (or re-read the detection) and fetch the findings from `.../detections/{detectionId}/analysis/` once it reaches `complete`. A repeated Idempotency-Key returns the existing detection.",
@@ -7520,7 +7520,7 @@
         "/workspaces/{workspaceId}/detections": {
             "post": {
                 "tags": [
-                    "WorkspaceDetections"
+                    "Detections"
                 ],
                 "summary": "Start an ad-hoc detection",
                 "description": "Starts a detection over a document against an explicit list of policies, with no pipeline. Returns 202 with the pending detection; fetch the findings from `.../detections/{detectionId}/analysis/` once it reaches `complete`. A repeated Idempotency-Key returns the existing detection.",
@@ -7641,7 +7641,7 @@
         "/workspaces/{workspaceId}/detections/{detectionId}": {
             "get": {
                 "tags": [
-                    "WorkspaceDetections"
+                    "Detections"
                 ],
                 "summary": "Get detection",
                 "description": "Returns the detection and its status for review.",
@@ -7722,7 +7722,7 @@
         "/workspaces/{workspaceId}/detections/{detectionId}/events": {
             "get": {
                 "tags": [
-                    "WorkspaceDetections"
+                    "Detections"
                 ],
                 "summary": "Stream detection status",
                 "description": "Opens a Server-Sent Events stream of the detection's status changes. Emits the current status immediately, then each transition, and ends once the detection settles (complete or failed). Each event's `data` is a `DetectionStatusEvent` (see the response schema). Authenticate with a Bearer token via a `fetch`-based client; the native `EventSource` cannot send an `Authorization` header.",
@@ -7916,7 +7916,7 @@
             },
             "post": {
                 "tags": [
-                    "WorkspaceDetections"
+                    "Detections"
                 ],
                 "summary": "Redact a detection",
                 "description": "Applies the pipeline's policies to the detection's stored analysis \u2014 with any reviewer `edits` layered on first (suppress a false positive, retag a detection, or add one the analysis missed) \u2014 and produces a new redaction: a redacted document plus a review audit recording what was redacted. A detection can be redacted more than once. An edit targeting a detection not in the analysis, or a set that contradicts itself, is rejected (400).",
@@ -18811,7 +18811,9 @@
                 "properties": {
                     "displayName": {
                         "description": "The new title (1-255 characters). Omitting the field leaves the current\ntitle unchanged.",
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 255,
+                        "minLength": 1
                     }
                 }
             },
