@@ -18,113 +18,183 @@ Upload a document, detect sensitive data, review, then redact:
 ```typescript
 import { readFile } from "node:fs/promises";
 
-const workspaceSlug = "acme";
-const pipelineSlug = "default";
+const workspaceId = "..."; // from client.workspaces.listWorkspaces()
+const pipelineId = "...";  // from client.pipelines.listPipelines(workspaceId)
 
 // 1. Upload
 const bytes = await readFile("./contract.pdf");
-const [file] = await client.files.uploadFiles(
-  workspaceSlug,
+const [document] = await client.documents.uploadDocuments(
+  workspaceId,
   new File([bytes], "contract.pdf", { type: "application/pdf" }),
 );
 
 // 2. Detect
-let run = await client.runs.createRun(workspaceSlug, pipelineSlug, {
-  fileId: file.id,
+const detection = await client.detections.createDetection(workspaceId, pipelineId, {
+  documentId: document.id,
 });
 
-// 3. Wait for detection to settle. The stream ends once the run settles.
-const events = await client.runs.events(workspaceSlug, run.id);
-const reader = events.body!.pipeThrough(new TextDecoderStream()).getReader();
+// 3. Wait for analysis to settle. The stream ends once the detection settles.
+let status = detection.status;
 
-let status = run.status;
-
-while (true) {
-  const { done, value } = await reader.read();
-  if (done) break;
-
-  for (const line of value.split("\n")) {
-    if (!line.startsWith("data:")) continue;
-    ({ status } = JSON.parse(line.slice(5)));
-  }
+for await (const event of client.detections.streamEvents(workspaceId, detection.id)) {
+  status = event.status;
 }
 
-if (status !== "analyzed") {
-  run = await client.runs.getRun(workspaceSlug, run.id);
-  throw new Error(`Run ${run.id} ended as ${run.status}: ${run.error ?? ""}`);
+if (status !== "complete") {
+  const settled = await client.detections.getDetection(workspaceId, detection.id);
+  throw new Error(`Detection ${settled.id} ended as ${settled.status}: ${settled.error ?? ""}`);
 }
 
-// 4. Review detections
-const audit = await client.runs.getDetections(workspaceSlug, run.id);
-console.log(`${audit.parts.length} parts analyzed`);
+// 4. Review the analysis
+const audit = await client.detections.getAnalysis(workspaceId, detection.id);
+console.log(`${audit.report.parts.length} parts analyzed`);
 
 // 5. Apply redactions
-const completed = await client.runs.redact(workspaceSlug, run.id);
-console.log(completed.status, completed.outputFileId);
+const redaction = await client.detections.createRedaction(workspaceId, detection.id, {});
+console.log(redaction.id, redaction.outputDocumentId);
 ```
 
 <Note>
-  A run moves through `queued` → `analyzing` → `analyzed`, and only reaches
-  `completed` after you call `redact`. This review step is deliberate — nothing
-  is modified until you approve it.
+  A detection moves through `pending` → `executing` → `complete` or `failed`.
+  Redaction is a separate step that leaves that status alone — nothing is
+  modified until you call `createRedaction`, and each call produces a new
+  redaction.
 </Note>
 
-## Downloading the Redacted File
+## Redacting With Reviewer Edits
+
+Omit `edits` to redact with the policy decisions exactly as detected, or supply
+an `EditSet` to layer a reviewer's corrections over the analysis first —
+suppress a false positive, retag a finding, or add one the analysis missed.
+
+An `EditSet` holds one list per modality — `text`, `tabular`, `image`, and
+`audio` — and every entry is tagged with an `op`:
+
+```typescript
+const corrected = await client.detections.createRedaction(workspaceId, detection.id, {
+  edits: {
+    text: [
+      // Each entry is { op: "add" | "retag" | "suppress", ... }; see the
+      // TextEdit schema for the fields each op carries. An `add` has no id —
+      // the engine mints one when the edit is applied.
+    ],
+  },
+});
+```
+
+## Downloading the Redacted Document
+
+A redaction's `outputDocumentId` points at a normal workspace document, so it
+downloads through the documents service:
 
 ```typescript
 import { writeFile } from "node:fs/promises";
 
-const response = await client.files.downloadFile(
-  workspaceSlug,
-  completed.outputFileId!,
+const response = await client.documents.downloadDocument(
+  workspaceId,
+  redaction.outputDocumentId!,
 );
 
 await writeFile("./contract-redacted.pdf", Buffer.from(await response.arrayBuffer()));
 ```
 
-## Reporting Live Progress
+## Ad-Hoc Detection Without a Pipeline
 
-Each event's `data` is a `RunStatusEvent` — `{ runId, status }` — so the same
-stream can drive a progress indicator:
+Name the policies directly when you do not want a saved pipeline:
 
 ```typescript
-const events = await client.runs.events(workspaceSlug, run.id);
-const reader = events.body!.pipeThrough(new TextDecoderStream()).getReader();
+const policies = await client.policies.listPolicies(workspaceId);
 
-while (true) {
-  const { done, value } = await reader.read();
-  if (done) break;
+const detection = await client.detections.createAdhocDetection(workspaceId, {
+  documentId: document.id,
+  policyIds: policies.items.slice(0, 2).map((policy) => policy.id),
+});
+```
 
-  for (const line of value.split("\n")) {
-    if (!line.startsWith("data:")) continue;
-    const event = JSON.parse(line.slice(5));
-    console.log(`run ${event.runId} is now ${event.status}`);
-  }
+## Reporting Live Progress
+
+Each event is a `DetectionStatusEvent` — `{ detectionId, status }` — so the same
+stream can drive a progress indicator. Break out of the loop to close it early:
+
+```typescript
+for await (const event of client.detections.streamEvents(workspaceId, detection.id)) {
+  console.log(`detection ${event.detectionId} is now ${event.status}`);
+  if (event.status === "failed") break;
 }
 ```
 
 <Note>
-  The stream closes on its own once the run settles, so the loop terminates
-  without a timeout. If the connection drops early, re-read the run with
-  `getRun` — the run row is the source of truth.
+  The stream closes on its own once the detection settles, so the loop
+  terminates without a timeout. If the connection drops early, re-read the
+  detection with `getDetection` — the detection row is the source of truth.
 </Note>
+
+For full control over the `text/event-stream` body, `events` returns the raw
+`Response` instead:
+
+```typescript
+const response = await client.detections.events(workspaceId, detection.id);
+const reader = response.body!.getReader();
+```
 
 ## Batch Uploads
 
-`uploadFiles` accepts an array and returns metadata for each file:
+`uploadDocuments` accepts an array and returns metadata for each document:
 
 ```typescript
-const files = await client.files.uploadFiles(workspaceSlug, [
+const documents = await client.documents.uploadDocuments(workspaceId, [
   new File([await readFile("./a.pdf")], "a.pdf"),
   new File([await readFile("./b.png")], "b.png"),
 ]);
 
-const runs = await Promise.all(
-  files.map((file) =>
-    client.runs.createRun(workspaceSlug, pipelineSlug, { fileId: file.id }),
+const detections = await Promise.all(
+  documents.map((document) =>
+    client.detections.createDetection(workspaceId, pipelineId, {
+      documentId: document.id,
+    }),
   ),
 );
 ```
+
+## Skipping Duplicate Uploads
+
+Documents carry a SHA-256 of their plaintext content, and the list query can
+filter on it — so you can check whether identical content is already in the
+workspace before uploading it again:
+
+```typescript
+import { createHash } from "node:crypto";
+
+const bytes = await readFile("./contract.pdf");
+const hash = createHash("sha256").update(bytes).digest("hex");
+
+const existing = await client.documents.listDocuments(workspaceId, { hash, limit: 1 });
+
+const document =
+  existing.items[0] ??
+  (await client.documents.uploadDocuments(
+    workspaceId,
+    new File([bytes], "contract.pdf", { type: "application/pdf" }),
+  ))[0];
+```
+
+## Bulk Deletion
+
+`deleteDocuments` is idempotent and reports what it could not remove:
+
+```typescript
+const { deleted, skipped } = await client.documents.deleteDocuments(
+  workspaceId,
+  documents.map((document) => document.id),
+);
+
+console.log(`deleted ${deleted.length}, skipped ${skipped.length}`);
+```
+
+<Note>
+  An id lands in `skipped` when it is unknown, already deleted, in another
+  workspace, or held by an in-progress detection that still needs the document.
+</Note>
 
 ## Paginating Results
 
@@ -134,60 +204,191 @@ List endpoints are cursor-based. Follow `nextCursor` until it is absent:
 let after: string | undefined;
 
 do {
-  const page = await client.files.listFiles(workspaceSlug, { after, limit: 50 });
-  for (const file of page.items) {
-    console.log(file.id, file.originalFilename, file.fileSize);
+  const page = await client.documents.listDocuments(workspaceId, { after, limit: 50 });
+  for (const document of page.items) {
+    console.log(document.id, document.originalFilename, document.size);
   }
   after = page.nextCursor;
 } while (after);
 ```
 
+<Tip>
+  Pass `includeCount: true` when you need the total in `page.total`. It costs an
+  extra query, so it is off by default.
+</Tip>
+
 ## Creating a Policy and Pipeline
 
 A policy defines what counts as sensitive; a pipeline defines how documents are
-processed. Inspect the catalog to see what is available:
+processed. Inspect the deployment's capabilities to see what is available:
 
 ```typescript
-const { labels, recognizers } = {
-  labels: await client.catalog.listLabels(),
-  recognizers: await client.catalog.listRecognizers(),
-};
+// `LabelCatalog` is a map of label id to its definition.
+const labels = await client.capabilities.listLabels();
+const recognizers = await client.capabilities.listRecognizers();
 
-const policy = await client.policies.createPolicy(workspaceSlug, {
-  name: "Contracts",
-  // ...policy definition
+console.log(Object.keys(labels).length, recognizers.ner.length, recognizers.llm.length);
+
+// Seed a policy from a built-in template. A PolicyTemplate is an
+// internally-tagged object under `kind`, with options on some variants.
+const policy = await client.policies.createPolicy(workspaceId, {
+  source: "template",
+  template: { kind: "hipaa_deidentification" },
+  displayName: "Contracts",
 });
 
-const pipeline = await client.pipelines.createPipeline(workspaceSlug, {
-  name: "Contract review",
-  // ...pipeline definition referencing the policy
+const pipeline = await client.pipelines.createPipeline(workspaceId, {
+  displayName: "Contract review",
+  status: "enabled",
+  // definition: { ... } — see PipelineDefinition
 });
 ```
 
 <Tip>
   Refer to the [API Reference](/api-reference/introduction) for the exact
-  `CreatePolicy` and `CreatePipeline` shapes — they are generated from the
-  OpenAPI specification and stay in sync with the server.
+  `CreateWorkspacePolicy` and `CreateWorkspacePipeline` shapes — they are
+  generated from the OpenAPI specification and stay in sync with the server.
 </Tip>
 
 ## Exporting an Audit Trail
 
-Runs expose their audit in JSON and CSV for long-term archiving:
+A detection's audit downloads as a file, `csv` by default or `json` on request:
 
 ```typescript
-const json = await client.runs.downloadAuditJson(workspaceSlug, run.id);
-await writeFile("./audit.json", Buffer.from(await json.arrayBuffer()));
+const csv = await client.detections.downloadAudit(workspaceId, detection.id);
+await writeFile("./audit.zip", Buffer.from(await csv.arrayBuffer()));
 
-const csv = await client.runs.downloadAuditCsv(workspaceSlug, run.id);
-await writeFile("./audit.csv", Buffer.from(await csv.arrayBuffer()));
+const json = await client.detections.downloadAudit(workspaceId, detection.id, {
+  format: "json",
+});
+await writeFile("./audit.json", Buffer.from(await json.arrayBuffer()));
 ```
+
+<Note>
+  The `csv` export is a zip of `entities.csv`, `provenance.csv`, and
+  `reviews.csv`. The `json` export is a single pretty-printed file.
+</Note>
+
+The workspace activity log exports the same way:
+
+```typescript
+const activity = await client.activities.exportActivities(workspaceId, {
+  from: "2026-01-01",
+  to: "2026-01-31",
+  format: "csv",
+});
+```
+
+## Running a Human Review
+
+Open a review on a document, assign a reviewer, discuss, then verify it:
+
+```typescript
+const review = await client.reviews.createForDocument(workspaceId, document.id, {
+  displayName: "Q1 contract review",
+});
+
+await client.reviews.assignReviewer(workspaceId, review.id, accountId);
+
+// Tie the analysis and its redaction to the thread for context.
+await client.reviews.linkDetection(workspaceId, review.id, detection.id);
+await client.reviews.linkRedaction(workspaceId, review.id, redaction.id);
+
+await client.reviews.addComment(workspaceId, review.id, {
+  body: "Two false positives on page 3 — suppressed before redacting.",
+});
+
+const timeline = await client.reviews.getTimeline(workspaceId, review.id);
+for (const entry of timeline.items) console.log(entry);
+
+const resolved = await client.reviews.verifyReview(workspaceId, review.id);
+console.log(resolved.reviewStatus); // "resolved"
+```
+
+<Tip>
+  `assignReviewer`, `linkDetection`, and `linkRedaction` are idempotent, so they
+  are safe to repeat. Use `reopenReview` to move a resolved review back into
+  review.
+</Tip>
+
+Find work assigned to an account with the list query:
+
+```typescript
+const mine = await client.reviews.listReviews(workspaceId, {
+  assignee: accountId,
+  reviewStatus: "needs_review",
+});
+```
+
+## Workspace Analytics
+
+```typescript
+const analytics = await client.analytics.getAnalytics(workspaceId);
+console.log(analytics.storage, analytics.detections, analytics.usage);
+
+const series = await client.analytics.getDetectionTimeSeries(workspaceId, {
+  from: "2026-01-01",
+  to: "2026-01-31",
+});
+```
+
+## Receiving Webhooks
+
+Create a webhook, store its secret, and verify each delivery:
+
+```typescript
+const webhook = await client.webhooks.createWebhook(workspaceId, {
+  displayName: "Detection notifier",
+  description: "Posts to our internal queue when a detection settles",
+  url: "https://example.com/hooks/nvisy",
+  events: ["pipeline.detection.completed", "pipeline.detection.failed"],
+});
+
+// `webhook.secret` is returned only once — store it in a secret manager now.
+await secrets.store("NVISY_WEBHOOK_SECRET", webhook.secret);
+```
+
+On the receiving side, verify the signature before trusting the payload:
+
+```typescript
+import { constructEventFromRequest, WebhookSignatureError } from "@nvisy/sdk/webhooks";
+
+export async function POST(request: Request) {
+  try {
+    const delivery = await constructEventFromRequest(request, {
+      secret: process.env.NVISY_WEBHOOK_SECRET!,
+    });
+
+    switch (delivery.event) {
+      case "pipeline.detection.completed":
+        // Narrow `delivery.payload` by event and handle it.
+        break;
+      case "pipeline.detection.failed":
+        break;
+    }
+
+    return new Response(null, { status: 204 });
+  } catch (error) {
+    if (error instanceof WebhookSignatureError) {
+      return new Response(null, { status: 400 });
+    }
+    throw error;
+  }
+}
+```
+
+<Warning>
+  `constructEventFromRequest` reads the raw body for you. If you verify
+  manually with `constructEvent`, pass the raw bytes — a re-serialized JSON body
+  will not match the signature.
+</Warning>
 
 ## Error Handling
 
 <Warning>
-  Wrap only reads or idempotency-keyed writes in an automatic retry. A `POST`
-  that uploads a file or applies redactions may have already succeeded when the
-  response failed, so retrying it blindly can duplicate work.
+  Wrap only reads in an automatic retry. A `POST` that uploads a document or
+  creates a redaction may have already succeeded when the response failed, so
+  retrying it blindly duplicates work.
 </Warning>
 
 ```typescript
@@ -210,26 +411,36 @@ async function withRetry<T>(operation: () => Promise<T>, attempts = 3): Promise<
   }
 }
 
-// One stable key for every attempt of this logical run: if an earlier attempt
-// reached the server, the retry returns that same run instead of creating
-// a duplicate.
-const idempotencyKey = crypto.randomUUID();
-
 try {
-  const run = await withRetry(() =>
-    client.runs.createRun(
-      workspaceSlug,
-      pipelineSlug,
-      { fileId: file.id },
-      { headers: { "Idempotency-Key": idempotencyKey } },
-    ),
-  );
+  const page = await withRetry(() => client.documents.listDocuments(workspaceId));
+  console.log(page.items.length);
 } catch (error) {
   if (error instanceof NvisyApiError) {
-    console.error(`[${error.statusCode}] ${error.message}`);
-    if (error.suggestion) console.error(`Hint: ${error.suggestion}`);
-    if (error.validation) console.error(error.validation);
+    console.error(`[${error.statusCode}] ${error.name}: ${error.message}`);
   }
+}
+```
+
+Retrying a write is different: re-read first and check whether the earlier
+attempt landed. Redactions are repeatable, so a blind retry mints a second
+redaction rather than failing.
+
+<Warning>
+  This resumes **one** uncertain `createRedaction` call. It returns the
+  detection's most recent redaction without checking which edits produced it,
+  so do not use it when you intend to create an additional redaction with
+  different edits — it would return the earlier one instead.
+</Warning>
+
+```typescript
+async function ensureRedaction(workspaceId: string, detectionId: string) {
+  const existing = await client.detections.listRedactions(workspaceId, detectionId, {
+    limit: 1,
+  });
+  return (
+    existing.items[0] ??
+    (await client.detections.createRedaction(workspaceId, detectionId, {}))
+  );
 }
 ```
 
@@ -238,7 +449,7 @@ try {
 ```typescript
 const created = await client.apiTokens.createApiToken({
   displayName: "ci-pipeline",
-  expiresIn: 2592000, // seconds
+  expiresIn: "in90Days",
 });
 
 // `created.token` is returned only once. Write it straight into a secret
@@ -247,3 +458,26 @@ await secrets.store("NVISY_API_TOKEN", created.token);
 
 await client.apiTokens.revokeApiToken(created.id);
 ```
+
+## Escaping to the Raw Client
+
+`client.api` is the underlying typed `openapi-fetch` client, for anything the
+service classes do not wrap — extra headers on a single call, for instance:
+
+```typescript
+const { data, error } = await client.api.POST(
+  "/workspaces/{workspaceId}/pipelines/{pipelineId}/detections",
+  {
+    params: { path: { workspaceId, pipelineId } },
+    body: { documentId: document.id },
+    headers: { "Idempotency-Key": crypto.randomUUID() },
+  },
+);
+```
+
+<Note>
+  Repeating a detection request with the same `Idempotency-Key` returns the
+  existing detection rather than starting a second one. Generate one key per
+  logical detection and reuse it across every retry of that detection —
+  generating a fresh key inside the retry loop defeats the purpose.
+</Note>

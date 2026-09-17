@@ -27,37 +27,54 @@ Recognition is deployment-wide: the built-in pattern set plus whichever
 recognizers the engine has registered. Pipelines choose *what* to target and
 *how* to treat it, not which recognizers exist.
 
-## The Catalog
+## Capabilities
 
-Two read-only endpoints describe what a deployment offers:
+Read-only endpoints describe what a deployment offers:
 
 ```
-GET /catalog/labels/
-GET /catalog/recognizers/
+GET /capabilities/labels
+GET /capabilities/recognizers
 ```
 
-`labels` returns the built-in taxonomy — the categories of sensitive data
-(PII, PHI, PCI, and so on) that policies can target. `recognizers` returns the
-engine's registered lineup, grouped into `ner` and `llm`.
+`labels` returns the built-in taxonomy, keyed by label id. Each label has a
+stable `id` (`phone_number`), localized names and descriptions, an optional
+`category` (the single coarse group it belongs to — `financial`, `health`,
+`identity`), and free-form `tags` that a policy selector matches against
+(`pii`, `phi`, `pci`). `recognizers` returns the engine's registered lineup,
+grouped into `ner` and `llm`.
 
 ```typescript
-const labels = await client.catalog.listLabels();
-const recognizers = await client.catalog.listRecognizers();
+const labels = await client.capabilities.listLabels();
+const recognizers = await client.capabilities.listRecognizers();
 
 console.log(recognizers.ner.length, recognizers.llm.length);
 ```
 
 <Tip>
-  Query the catalog rather than hardcoding label names. It reflects what the
+  Query capabilities rather than hardcoding label names. They reflect what the
   deployment you are talking to actually supports, which differs between cloud
   and self-hosted installs.
 </Tip>
 
-## LLM Providers
+A request can also introduce labels the deployment does not ship. The audit's
+`recognition` field carries them along with the matchers that find them — and
+a custom label may legitimately have no matcher at all, which is the point
+when it marks something only a human can recognize.
 
-Model-driven recognition runs against a connected provider — `openai`,
-`anthropic`, or `ollama` for self-hosted inference. Configure one as a
-workspace [connection](/features/integrations).
+## Inference Providers
+
+Model-driven recognition runs against a workspace **provider** — a separate
+resource from a connection. A provider's `providerType` says which kind of
+model it is, `llm` or `ner`; its `provider` names the vendor, `openai`,
+`anthropic`, or `ollama`.
+
+```
+GET  /workspaces/{workspaceId}/providers
+POST /workspaces/{workspaceId}/providers
+POST /workspaces/{workspaceId}/providers/{providerId}/verify
+```
+
+See [Integrations](/features/integrations) for the config shapes.
 
 <Note>
   With `ollama`, inference stays inside your infrastructure. Combined with an
@@ -67,18 +84,24 @@ workspace [connection](/features/integrations).
 ## Reconciliation
 
 Multiple recognizers frequently find the same thing, or disagree. Rather than
-taking the first match, the engine reconciles them — and records how. Each
-entity's audit chain shows the steps applied:
+taking the first match, the engine fuses them — and records how. Each entity's
+audit trail shows the steps applied:
 
 | Event | Meaning |
 |-------|---------|
-| `pattern` | Matched a deterministic pattern |
-| `model` | Recognized by a model |
-| `deduplication` | Merged with an overlapping detection |
-| `conflict` | Competing detections were reconciled |
-| `contested` | Recognizers disagreed |
-| `calibration` | Confidence was calibrated |
-| `refinement` | Boundaries or label were refined |
+| `pattern` | A pattern or dictionary recognizer matched here |
+| `model` | A model or NER recognizer matched here |
+| `metadata` | A metadata field was surfaced as a redaction subject |
+| `deduplication` | Several detections were fused into one entity |
+| `conflict` | A competing detection of a different label was resolved against this one |
+| `contested` | A competing detection was left unresolved; both survive, flagged for a human |
+| `calibration` | Confidence was rescaled by a per-recognizer factor |
+| `refinement` | A context keyword near the entity lifted its confidence |
+
+When several recognizers find the same thing, the survivor's `location` and
+`confidence` are the *fused* values, and every contributing recognition event
+is retained alongside a `deduplication` event. Nothing is collapsed: each
+recognizer keeps its own event with its own location and score.
 
 Events carry their `parents`, so a final entity can be traced back through
 every merge that produced it. See [Audit Trails](/features/audit-trails).
@@ -89,11 +112,13 @@ Each recognized entity records:
 
 | Field | Description |
 |-------|-------------|
+| `id` | Stable identity, minted when the entity is assembled |
 | `label` | The taxonomy label it was classified as |
-| `confidence` | Calibrated confidence |
+| `confidence` | Effective confidence, `0.0` to `1.0` |
 | `location` | Position, in coordinates native to the modality |
 | `language` | Detected language, where applicable |
 | `coref` | Coreference link to other mentions of the same subject |
+| `audit` | The tamper-evident provenance trail |
 
 <Note>
   Coreference links matter for redaction consistency: when the same person is
@@ -101,28 +126,40 @@ Each recognized entity records:
   than as unrelated findings.
 </Note>
 
+An entity found through text recognition also carries a `recognized_range` —
+the byte range of the match in the recognized text it was found in, whether
+that is an OCR layout, an audio transcript, or the text payload itself. It is
+the stable key back into the [enrichment
+intermediates](/features/redaction-workflow), where the richer context lives:
+which OCR block, which speaker. It is an audit key, not a coordinate —
+redaction uses `location`.
+
 ## Scope
 
-A run's scope narrows recognition to the languages and jurisdictions that
-apply, and controls OCR:
+A detection's scope narrows recognition to the languages and jurisdictions
+that apply, and carries what the caller asserts about the document:
 
 ```json
 {
   "scope": {
     "languages": ["en"],
     "countries": ["US"],
-    "ocrMode": { "kind": "force", "dpi": 300 }
+    "metadata": { "tags": ["medical"], "purpose": "fraud_detection" }
   }
 }
 ```
 
-Pipelines carry a default scope; individual runs may override it.
+Recognizers may bias their detection on that metadata — an LLM prompt lists the
+tags so the model attends to the right terms. Pipelines carry a
+`defaultScope`; individual detections may override it.
 
 ## Review
 
-Detection never modifies a document. A run stops at `analyzed` with its
-findings recorded, and redaction is a separate, explicit step — so confidence
-scores inform a human decision rather than replacing one.
+Detection never modifies a document. A detection settles at `complete` with its
+findings recorded, and redaction is a separate, repeatable step — so confidence
+scores inform a human decision rather than replacing one. The engine even
+records the operator it *picked* as a `selection` event before anything is
+applied, so the decision can be reviewed before the change is made.
 
 ## Next Steps
 
@@ -131,6 +168,6 @@ scores inform a human decision rather than replacing one.
     What happens after detection
   </Card>
   <Card title="Integrations" icon="plug" href="/features/integrations">
-    Connect an LLM provider
+    Connect an inference provider
   </Card>
 </CardGroup>

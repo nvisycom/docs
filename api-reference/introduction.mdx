@@ -4,7 +4,7 @@ description: "Getting started with the Nvisy REST API"
 ---
 
 The Nvisy API is a REST API over HTTPS. It accepts and returns JSON, except
-where file content is uploaded or downloaded.
+where document content is uploaded or downloaded.
 
 <Info>
   The endpoint reference in this section is generated directly from the
@@ -25,30 +25,38 @@ development server defaults to `http://127.0.0.1:8080`.
 All requests authenticate with a bearer token:
 
 ```bash
-curl https://api.nvisy.com/workspaces/ \
+curl https://api.nvisy.com/workspaces \
   -H "Authorization: Bearer $NVISY_API_TOKEN"
 ```
 
 Create tokens under **API Tokens** in your account settings, or through the
-`/api-tokens/` endpoints.
+`/api-tokens` endpoints.
 
 <Warning>
-  A token's secret is returned only once, at creation. Store it securely — it
-  cannot be retrieved afterwards.
+  A token's secret is returned only once, at creation, in the `POST
+  /api-tokens` response. Store it securely — it cannot be retrieved afterwards.
 </Warning>
+
+Browser clients may authenticate with the cookie session established by
+`POST /auth/login` or `POST /auth/signup` instead. A desktop app exchanges an
+existing session for a token with `POST /auth/desktop/token`. Where a
+deployment offers OIDC providers, sign-in starts at
+`GET /auth/{provider}/start` — ask `GET /capabilities/auth` which methods this
+deployment actually offers.
 
 ## Workspaces
 
-Nearly every resource lives inside a workspace, addressed by its slug:
+Nearly every resource lives inside a workspace, addressed by its id:
 
 ```
-/workspaces/{workspaceSlug}/files/
-/workspaces/{workspaceSlug}/pipelines/
-/workspaces/{workspaceSlug}/runs/{runId}/
+/workspaces/{workspaceId}/documents
+/workspaces/{workspaceId}/pipelines
+/workspaces/{workspaceId}/detections/{detectionId}
 ```
 
 Workspaces are the tenancy and access-control boundary. List yours with
-`GET /workspaces/`.
+`GET /workspaces`. Each workspace also carries a `handle` — a URL-safe
+display-only name. Address resources by `id`, not by handle.
 
 ## The Redaction Workflow
 
@@ -56,57 +64,65 @@ Redaction happens in two phases, so findings can be reviewed before anything is
 modified.
 
 <Steps>
-  <Step title="Upload a file">
-    `POST /workspaces/{workspaceSlug}/files/` — multipart upload, returns file
-    metadata including the file ID.
+  <Step title="Upload a document">
+    `POST /workspaces/{workspaceId}/documents` — multipart upload, returns the
+    document metadata including the document ID.
   </Step>
-  <Step title="Start a run">
-    `POST /workspaces/{workspaceSlug}/pipelines/{pipelineSlug}/runs/` with a
-    `fileId`. The run analyzes the document against the pipeline's policy.
+  <Step title="Start a detection">
+    `POST /workspaces/{workspaceId}/pipelines/{pipelineId}/detections` with a
+    `documentId`. The detection analyzes the document against the pipeline's
+    configuration and returns `202` with a `pending` detection.
+
+    To analyze against an explicit list of policies with no saved pipeline,
+    `POST /workspaces/{workspaceId}/detections` with a `documentId` and
+    `policyIds`.
   </Step>
-  <Step title="Review detections">
-    `GET /workspaces/{workspaceSlug}/runs/{runId}/detections/` returns the
-    audit of what was found.
+  <Step title="Review the analysis">
+    `GET /workspaces/{workspaceId}/detections/{detectionId}/analysis` returns
+    the audit of what was found.
   </Step>
   <Step title="Apply redactions">
-    `POST /workspaces/{workspaceSlug}/runs/{runId}/redactions/` produces the
-    redacted output file.
+    `POST /workspaces/{workspaceId}/detections/{detectionId}/redactions`
+    produces a redaction, which owns the redacted output document. Pass `edits`
+    to layer reviewer changes over the analysis first, or omit it to redact
+    exactly as detected.
   </Step>
 </Steps>
 
-### Run Status
+Redaction is repeatable: each request produces a new redaction over the same
+detection, and does not change the detection's status.
+
+### Detection Status
 
 | Status | Meaning |
 |--------|---------|
-| `queued` | Enqueued for detection; no worker has started |
-| `analyzing` | A worker is actively analyzing the document |
-| `analyzed` | Detection finished; awaiting review |
-| `completed` | Redaction applied; run finished |
-| `failed` | Run failed — see the `error` field |
-| `cancelled` | Cancelled by a user |
+| `pending` | Enqueued for detection; no worker has picked it up yet |
+| `executing` | A worker is actively analyzing the document |
+| `complete` | Analysis done; the detection is ready to redact |
+| `failed` | Detection failed — see the `error` field |
 
-Subscribe to `GET /workspaces/{workspaceSlug}/runs/{runId}/events` for a
-server-sent events stream. It emits the current status immediately, then each
-transition, and ends once the run settles (`analyzed`, `failed`, or
-`cancelled`). Each event's `data` is a `RunStatusEvent`.
+Subscribe to `GET /workspaces/{workspaceId}/detections/{detectionId}/events`
+for a server-sent events stream. It emits the current status immediately, then
+each transition, and ends once the detection settles (`complete` or `failed`).
+Each event is named `status` and its `data` is a `DetectionStatusEvent`.
 
 <Note>
   Authenticate the stream with a bearer token using a `fetch`-based client —
   the native `EventSource` cannot send an `Authorization` header.
 
-  The run row is the source of truth, so a missed broadcast is recoverable:
-  re-read `GET /workspaces/{workspaceSlug}/runs/{runId}/` if a connection
-  drops.
+  The detection row is the source of truth, so a missed broadcast is
+  recoverable: re-read `GET /workspaces/{workspaceId}/detections/{detectionId}`
+  if a connection drops.
 </Note>
 
 ## Pipelines and Policies
 
 A **policy** defines what counts as sensitive. A **pipeline** defines how a
-document is processed and which policy applies. Both are workspace resources
-and are reused across runs.
+document is processed and which policies apply. Both are workspace resources
+and are reused across detections.
 
-Browse the available detection labels and recognizers through
-`GET /catalog/labels/` and `GET /catalog/recognizers/`.
+Browse what the deployment supports through `GET /capabilities/labels`,
+`GET /capabilities/recognizers`, and `GET /capabilities/connectors`.
 
 ## Pagination
 
@@ -114,11 +130,13 @@ List endpoints are cursor-paginated:
 
 | Parameter | Description |
 |-----------|-------------|
-| `limit` | Maximum items to return |
+| `limit` | Maximum items to return (1–100, default 20) |
 | `after` | Cursor pointing at the last item of the previous page |
+| `includeCount` | Whether to populate `total`; defaults to `false` |
 
-Responses contain `items`, `nextCursor`, and `total`. Continue while
-`nextCursor` is present.
+Responses contain `items`, and `nextCursor` when more items exist. Continue
+while `nextCursor` is present. `total` is returned only when you ask for it
+with `includeCount=true`, since counting costs an extra query.
 
 ## Errors
 
@@ -127,43 +145,63 @@ Errors return a JSON body alongside the HTTP status code:
 ```json
 {
   "name": "NotFound",
-  "message": "Workspace not found",
-  "resource": "workspace",
-  "suggestion": "Verify the workspace slug"
+  "message": "Workspace not found"
 }
 ```
 
+`name` is the error type identifier; `message` is a human-readable message safe
+to display.
+
 | Status | Meaning |
 |--------|---------|
-| `400` | Malformed request or failed validation |
+| `400` | Malformed request |
 | `401` | Missing or invalid token |
 | `403` | Authenticated, but not permitted |
 | `404` | Resource does not exist |
-| `429` | Rate limit exceeded |
-| `5xx` | Server error — retry idempotent requests with backoff |
+| `409` | Conflicts with the resource's current state |
+| `413` | Upload exceeds the workspace's `maxUploadBytes` |
+| `415` | Unsupported request content type |
+| `422` | Request body failed validation |
+| `503` | A dependency is unhealthy — see the health endpoints |
 
 <Warning>
   Only retry automatically when the request is idempotent or the endpoint
-  documents an idempotency guarantee. A `POST` that uploads a file, creates a
-  run, or applies redactions may have succeeded before the response failed, so a
-  blind retry can duplicate work. Run creation accepts an `Idempotency-Key`
-  header — reuse one stable key across every attempt of the same logical run.
+  documents an idempotency guarantee. A `POST` that uploads a document, starts
+  a detection, or applies redactions may have succeeded before the response
+  failed, so a blind retry can duplicate work. Starting a detection accepts an
+  `Idempotency-Key` header — reuse one stable key across every attempt of the
+  same logical detection, and a repeat returns the existing detection.
 </Warning>
 
 ## Audit Export
 
-Every run's audit can be exported for long-term archiving:
+Every detection's audit can be downloaded for long-term archiving:
 
 ```
-GET /workspaces/{workspaceSlug}/runs/{runId}/audit/json
-GET /workspaces/{workspaceSlug}/runs/{runId}/audit/csv
+GET /workspaces/{workspaceId}/detections/{detectionId}/audit?format=csv
+GET /workspaces/{workspaceId}/detections/{detectionId}/audit?format=json
 ```
+
+`csv` is the default and returns a zip of `entities.csv`, `provenance.csv`, and
+`reviews.csv`. `json` returns a pretty-printed JSON file.
+
+A redaction's own review audit — the analysis with reviewer edits applied and
+the per-entity outcome recorded — is at
+`GET /workspaces/{workspaceId}/redactions/{redactionId}/review`.
+
+## Health
+
+`GET /health/live` is a liveness probe that touches no dependencies.
+`GET /health/ready` reports the server and its dependencies from a short-lived
+cache and is safe to poll. Both return `200` when healthy or degraded and `503`
+when unhealthy.
 
 ## Webhooks
 
-Register endpoints under `/workspaces/{workspaceSlug}/webhooks/` to receive
-events as runs progress. Use the `test` endpoint to verify delivery before
-relying on it.
+Register endpoints under `/workspaces/{workspaceId}/webhooks` to receive events
+as detections and syncs progress. Use
+`POST /workspaces/{workspaceId}/webhooks/{webhookId}/test` to verify delivery
+before relying on it.
 
 ## SDKs
 

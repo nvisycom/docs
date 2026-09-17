@@ -9,7 +9,7 @@ This guide takes you from an API token to a redacted document.
 
 - An Nvisy account, or a [self-hosted deployment](/deployment/on-premise/getting-started)
 - An API token from **API Tokens** in your account settings
-- A workspace — create one in the app, or with `POST /workspaces/`
+- A workspace — create one in the app, or with `POST /workspaces`
 
 <Tip>
   Export your token so the examples below can pick it up:
@@ -48,93 +48,126 @@ import { Nvisy } from "@nvisy/sdk";
 const client = new Nvisy({ apiToken: process.env.NVISY_API_TOKEN! });
 
 const workspaces = await client.workspaces.listWorkspaces();
-console.log(workspaces.items.map((workspace) => workspace.slug));
+console.table(
+  workspaces.items.map(({ id, handle }) => ({ id, handle })),
+);
 ```
 
 ```bash cURL
-curl https://api.nvisy.com/workspaces/ \
+curl https://api.nvisy.com/workspaces \
   -H "Authorization: Bearer $NVISY_API_TOKEN"
 ```
 
 </CodeGroup>
 
+<Note>
+  Workspaces, documents, pipelines, and detections are all addressed by `id`.
+  A workspace's `handle` is display-only — read the `id` from the listing above
+  and use that in every call below.
+</Note>
+
 ## Redact a Document
 
-Redaction is deliberately two-phase: a run first **detects** sensitive data,
-and nothing is modified until you **apply** redactions.
+Redaction is deliberately two-phase: a detection first **finds** sensitive
+data, and nothing is modified until you **redact**.
 
 <Steps>
-  <Step title="Upload a file">
+  <Step title="Pick a workspace and pipeline">
+    ```typescript
+    const { items: workspaces } = await client.workspaces.listWorkspaces();
+    const workspaceId = workspaces[0].id;
+
+    const { items: pipelines } = await client.pipelines.listPipelines(workspaceId);
+    if (pipelines.length === 0) {
+      throw new Error(
+        `Workspace ${workspaceId} has no pipelines — create one first.`,
+      );
+    }
+    const pipelineId = pipelines[0].id;
+    ```
+
+    A new workspace starts with no pipelines. Create one with
+    `client.pipelines.createPipeline(workspaceId, ...)`, or skip pipelines
+    entirely and run an
+    [ad-hoc detection](/sdks/typescript/examples#ad-hoc-detection-without-a-pipeline)
+    against a policy.
+  </Step>
+
+  <Step title="Upload a document">
     ```typescript
     import { readFile } from "node:fs/promises";
 
-    const workspaceSlug = "acme";
     const bytes = await readFile("./contract.pdf");
 
-    const [file] = await client.files.uploadFiles(
-      workspaceSlug,
+    const [document] = await client.documents.uploadDocuments(
+      workspaceId,
       new File([bytes], "contract.pdf", { type: "application/pdf" }),
     );
     ```
   </Step>
 
-  <Step title="Start a detection run">
+  <Step title="Start a detection">
     ```typescript
-    let run = await client.runs.createRun(workspaceSlug, "default", {
-      fileId: file.id,
-    });
+    const detection = await client.detections.createDetection(
+      workspaceId,
+      pipelineId,
+      { documentId: document.id },
+    );
     ```
 
-    Runs move through `queued` → `analyzing` → `analyzed`.
+    Detections move through `pending` → `executing` → `complete`.
   </Step>
 
-  <Step title="Wait for detection to finish">
-    Subscribe to the run's event stream. It emits the current status
-    immediately, then each transition, and ends once the run settles.
+  <Step title="Wait for analysis to finish">
+    Subscribe to the detection's event stream. It yields the current status
+    immediately, then each transition, and ends once the detection settles.
 
     ```typescript
-    const events = await client.runs.events(workspaceSlug, run.id);
-    const reader = events.body!.pipeThrough(new TextDecoderStream()).getReader();
+    let status = detection.status;
 
-    let status = run.status;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      for (const line of value.split("\n")) {
-        if (!line.startsWith("data:")) continue;
-        ({ status } = JSON.parse(line.slice(5)));
-      }
+    for await (const event of client.detections.streamEvents(
+      workspaceId,
+      detection.id,
+    )) {
+      status = event.status;
     }
 
-    if (status !== "analyzed") {
-      throw new Error(`Run ${run.id} ended as ${status}`);
+    if (status !== "complete") {
+      throw new Error(`Detection ${detection.id} ended as ${status}`);
     }
     ```
   </Step>
 
   <Step title="Review what was found">
     ```typescript
-    const audit = await client.runs.getDetections(workspaceSlug, run.id);
-    console.log(`${audit.parts.length} parts analyzed`);
+    const audit = await client.detections.getAnalysis(workspaceId, detection.id);
+    console.log(audit.report);
     ```
   </Step>
 
   <Step title="Apply redactions">
     ```typescript
-    const completed = await client.runs.redact(workspaceSlug, run.id);
-    console.log(completed.status, completed.outputFileId);
+    const redaction = await client.detections.createRedaction(
+      workspaceId,
+      detection.id,
+      {},
+    );
+
+    console.log(redaction.id, redaction.outputDocumentId);
     ```
+
+    Pass `{ edits }` instead of `{}` to layer reviewer changes over the
+    analysis — suppressing a false positive, retagging an entity, or adding one
+    the analysis missed.
   </Step>
 
   <Step title="Download the result">
     ```typescript
     import { writeFile } from "node:fs/promises";
 
-    const response = await client.files.downloadFile(
-      workspaceSlug,
-      completed.outputFileId!,
+    const response = await client.documents.downloadDocument(
+      workspaceId,
+      redaction.outputDocumentId!,
     );
 
     await writeFile(
@@ -144,6 +177,12 @@ and nothing is modified until you **apply** redactions.
     ```
   </Step>
 </Steps>
+
+<Tip>
+  To analyze a document without a saved pipeline, use
+  `client.detections.createAdhocDetection(workspaceId, { documentId, policyIds })`
+  and name the policies directly.
+</Tip>
 
 ## Next Steps
 
@@ -158,6 +197,6 @@ and nothing is modified until you **apply** redactions.
     Full API coverage
   </Card>
   <Card title="Audit Trails" icon="shield-check" href="/features/audit-trails">
-    Export run audits for archiving
+    Export detection audits for archiving
   </Card>
 </CardGroup>

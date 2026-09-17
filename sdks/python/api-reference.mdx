@@ -99,7 +99,7 @@ from nvisy import ApiError, ClientError, ConfigError, NetworkError
 from nvisy import ApiError, NetworkError
 
 try:
-    response = client.get_sync("/workspaces/")
+    response = client.get_sync("/workspaces")
 except ApiError as error:
     print(error.status_code, error, error.request_id)
 except NetworkError as error:

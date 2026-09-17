@@ -29,13 +29,12 @@ pnpm add @nvisy/sdk
 
 ## Requirements
 
-- Node.js 20 or later (or any ES2022+ runtime with `fetch` and a global `File`)
+- Node.js 24 or later (or any ES2022+ runtime with `fetch` and a global `File`)
 - An API token — create one under **API Tokens** in your account settings
 
 <Note>
-  Uploads construct a `File`, which Node.js exposes globally from version 20
-  onwards. On Node.js 18, import it explicitly with
-  `import { File } from "node:buffer"`.
+  Uploads construct a `File`, which Node.js exposes globally. On a runtime
+  without it, import it explicitly with `import { File } from "node:buffer"`.
 </Note>
 
 ## Your First Request
@@ -55,7 +54,7 @@ console.log(account.username, workspaces.items.length);
 
 <Tip>
   Everything except authentication and account management is scoped to a
-  workspace, identified by its slug. List your workspaces first to find it.
+  workspace, identified by its id. List your workspaces first to find it.
 </Tip>
 
 ## Configuration
@@ -64,91 +63,133 @@ The constructor accepts additional options:
 
 ```typescript
 const client = new Nvisy({
-  apiToken: "your-api-token",       // Required
+  apiToken: "your-api-token",       // Required (unless `session: true`)
   baseUrl: "https://api.nvisy.com", // Optional
   userAgent: "MyApp/1.0.0",         // Optional
   withLogging: true,                // Optional — debug logging
   headers: {                        // Optional
     "X-Custom-Header": "value",
   },
+  fetch: customFetch,               // Optional — defaults to the global fetch
 });
 ```
 
 | Option | Type | Required | Default |
 |--------|------|----------|---------|
-| `apiToken` | `string` | Yes | — |
+| `apiToken` | `string` | One of `apiToken` / `session` | — |
+| `session` | `true` | One of `apiToken` / `session` | — |
 | `baseUrl` | `string` | No | `https://api.nvisy.com` |
 | `userAgent` | `string` | No | `@nvisy/sdk v.<version>` |
 | `withLogging` | `boolean` | No | `false` |
 | `headers` | `Record<string, string>` | No | — |
+| `credentials` | `RequestCredentials` | No | — |
+| `fetch` | `typeof fetch` | No | global `fetch` |
+
+<Note>
+  `apiToken` and `session` are mutually exclusive in the type. Use `apiToken`
+  for server-side and CI use; use `session: true` in a browser app after the
+  guest client has logged in, which sends the session cookies instead.
+</Note>
+
+## Signing In From a Browser
+
+Login, signup, OIDC sign-in start, the deployment's auth capabilities, and the
+health probes work without a token, so they live on a separate pre-auth client:
+
+```typescript
+import { NvisyGuest } from "@nvisy/sdk/guest";
+import { Nvisy } from "@nvisy/sdk";
+
+const guest = new NvisyGuest({ baseUrl: "https://api.nvisy.com" });
+
+// Which sign-in methods does this deployment offer?
+const methods = await guest.capabilities.getAuthCapabilities();
+
+// Password login sets the session cookies and returns no body.
+await guest.auth.loginAccount({
+  identifier: "user@example.com",
+  password: process.env.PASSWORD!,
+});
+
+// From here, use the authenticated client backed by that cookie session.
+const client = new Nvisy({ session: true });
+```
 
 ## The Redaction Workflow
 
-Redaction is a two-phase process: a run first **detects** sensitive data, then
-you **apply** redactions after reviewing the findings.
+Redaction is a two-phase process: a **detection** first analyzes a document,
+then you create a **redaction** from it after reviewing the findings.
 
 <Steps>
-  <Step title="Upload a file">
+  <Step title="Upload a document">
     ```typescript
-    const [file] = await client.files.uploadFiles(workspaceSlug, blob);
+    const [document] = await client.documents.uploadDocuments(workspaceId, blob);
     ```
   </Step>
-  <Step title="Start a run against a pipeline">
+  <Step title="Start a detection against a pipeline">
     Creation returns immediately; analysis continues in the background.
 
     ```typescript
-    let run = await client.runs.createRun(workspaceSlug, pipelineSlug, {
-      fileId: file.id,
-    });
+    const detection = await client.detections.createDetection(
+      workspaceId,
+      pipelineId,
+      { documentId: document.id },
+    );
     ```
   </Step>
   <Step title="Wait for analysis to finish">
-    Subscribe to the run's event stream. It emits the current status
-    immediately, then each transition, and ends once the run settles.
+    `streamEvents` yields the current status immediately, then each transition,
+    and ends once the detection settles.
 
     ```typescript
-    const response = await client.runs.events(workspaceSlug, run.id);
-    const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
+    let status = detection.status;
 
-    let status = run.status;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      for (const line of value.split("\n")) {
-        if (!line.startsWith("data:")) continue;
-        ({ status } = JSON.parse(line.slice(5)));
-      }
+    for await (const event of client.detections.streamEvents(
+      workspaceId,
+      detection.id,
+    )) {
+      status = event.status;
     }
 
-    if (status !== "analyzed") {
-      throw new Error(`Run ${run.id} ended as ${status}`);
+    if (status !== "complete") {
+      throw new Error(`Detection ${detection.id} ended as ${status}`);
     }
     ```
   </Step>
-  <Step title="Review detections">
+  <Step title="Review the analysis">
     ```typescript
-    const audit = await client.runs.getDetections(workspaceSlug, run.id);
+    const audit = await client.detections.getAnalysis(workspaceId, detection.id);
     ```
   </Step>
-  <Step title="Apply redactions">
+  <Step title="Create a redaction">
     ```typescript
-    const redacted = await client.runs.redact(workspaceSlug, run.id);
+    const redaction = await client.detections.createRedaction(
+      workspaceId,
+      detection.id,
+      {},
+    );
     ```
   </Step>
 </Steps>
 
 <Note>
   A pipeline defines *how* a document is analyzed, and a policy defines *what*
-  is considered sensitive. Create them once, then reuse across runs.
+  is considered sensitive. Create them once, then reuse across detections. To
+  analyze a document against policies directly, without a saved pipeline, use
+  `detections.createAdhocDetection(workspaceId, { documentId, policyIds })`.
 </Note>
 
 <Tip>
-  The run row in Postgres is the source of truth, so a missed broadcast is
-  recoverable — re-read the run with `getRun` if a connection drops. Note that
-  the native `EventSource` cannot send an `Authorization` header, which is why
-  the SDK streams over `fetch`.
+  A detection moves through `pending` → `executing` → `complete` or `failed`.
+  Redaction is a separate, repeatable action over a complete detection and does
+  not change that status — each `createRedaction` call produces a new redaction.
+</Tip>
+
+<Tip>
+  The detection row in Postgres is the source of truth, so a missed broadcast is
+  recoverable — re-read the detection with `getDetection` if a connection drops.
+  Note that the native `EventSource` cannot send an `Authorization` header,
+  which is why the SDK streams over `fetch`.
 </Tip>
 
 ## Next Steps
