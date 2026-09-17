@@ -242,7 +242,8 @@ accepts `scope` and `retentionOverride`.
 
 A `WorkspaceDetection` carries `id`, `inputDocumentId`, `inputDocumentName`,
 `pipelineId` (absent for an ad-hoc detection), `status`, `triggerType`,
-`triggeredBy`, `metadata`, `startedAt`, and `completedAt`.
+`triggeredBy`, `metadata`, `startedAt`, `completedAt`, and `error` (present
+only when `status` is `failed`).
 
 <Note>
   Redaction does not change a detection's status. Each `createRedaction` call

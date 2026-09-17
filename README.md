@@ -7,8 +7,6 @@
 Guides, API reference, and SDK documentation, built with Mintlify and
 deployed to docs.nvisy.com.
 
-[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
-
 [**nvisy.com**](https://nvisy.com) · [**docs.nvisy.com**](https://docs.nvisy.com)
 
 </div>
@@ -87,6 +85,5 @@ Deploys happen automatically on merge to `main` via the Mintlify GitHub app.
 ## Support
 
 - **Documentation**: [docs.nvisy.com](https://docs.nvisy.com)
-- **Issues**: [GitHub Issues](https://github.com/nvisycom/docs/issues)
 - **Email**: [support@nvisy.com](mailto:support@nvisy.com)
 - **API Status**: [nvisy.openstatus.dev](https://nvisy.openstatus.dev)

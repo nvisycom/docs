@@ -421,8 +421,16 @@ try {
 }
 ```
 
-For a write you do want to retry, re-read first and check whether the earlier
-attempt landed:
+Retrying a write is different: re-read first and check whether the earlier
+attempt landed. Redactions are repeatable, so a blind retry mints a second
+redaction rather than failing.
+
+<Warning>
+  This resumes **one** uncertain `createRedaction` call. It returns the
+  detection's most recent redaction without checking which edits produced it,
+  so do not use it when you intend to create an additional redaction with
+  different edits — it would return the earlier one instead.
+</Warning>
 
 ```typescript
 async function ensureRedaction(workspaceId: string, detectionId: string) {

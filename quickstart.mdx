@@ -48,7 +48,9 @@ import { Nvisy } from "@nvisy/sdk";
 const client = new Nvisy({ apiToken: process.env.NVISY_API_TOKEN! });
 
 const workspaces = await client.workspaces.listWorkspaces();
-console.log(workspaces.items.map((workspace) => workspace.handle));
+console.table(
+  workspaces.items.map(({ id, handle }) => ({ id, handle })),
+);
 ```
 
 ```bash cURL
@@ -76,8 +78,19 @@ data, and nothing is modified until you **redact**.
     const workspaceId = workspaces[0].id;
 
     const { items: pipelines } = await client.pipelines.listPipelines(workspaceId);
+    if (pipelines.length === 0) {
+      throw new Error(
+        `Workspace ${workspaceId} has no pipelines — create one first.`,
+      );
+    }
     const pipelineId = pipelines[0].id;
     ```
+
+    A new workspace starts with no pipelines. Create one with
+    `client.pipelines.createPipeline(workspaceId, ...)`, or skip pipelines
+    entirely and run an
+    [ad-hoc detection](/sdks/typescript/examples#ad-hoc-detection-without-a-pipeline)
+    against a policy.
   </Step>
 
   <Step title="Upload a document">
