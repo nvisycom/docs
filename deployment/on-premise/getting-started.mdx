@@ -210,7 +210,7 @@ export NVISY_API_TOKEN="..."
 ### Verify the Instance
 
 ```bash
-curl http://localhost:8080/health/
+curl http://localhost:8080/health
 ```
 
 A healthy instance reports each component:
@@ -221,6 +221,7 @@ A healthy instance reports each component:
   "checks": [
     { "name": "postgres", "status": "healthy" },
     { "name": "nats", "status": "healthy" },
+    { "name": "s3", "status": "healthy" },
     { "name": "webhook", "status": "healthy" }
   ],
   "timestamp": "2025-01-01T00:00:00Z"
@@ -230,7 +231,7 @@ A healthy instance reports each component:
 ### Using cURL
 
 ```bash
-curl http://localhost:8080/workspaces/ \
+curl http://localhost:8080/workspaces \
   -H "Authorization: Bearer $NVISY_API_TOKEN"
 ```
 

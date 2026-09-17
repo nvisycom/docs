@@ -23,7 +23,7 @@ description: "Frequently asked questions about Nvisy"
   </Accordion>
   
   <Accordion title="How accurate is the detection?">
-    Each detection carries a calibrated confidence score and a provenance chain showing how it was recognized. Runs stop after analysis so findings can be reviewed before anything is modified — detection informs a decision rather than replacing one.
+    Each finding carries a calibrated confidence score and a provenance chain showing how it was recognized. A detection stops after analysis so findings can be reviewed before anything is modified — detection informs a decision rather than replacing one.
   </Accordion>
   
   <Accordion title="What file formats are supported?">
@@ -57,17 +57,17 @@ description: "Frequently asked questions about Nvisy"
   </Accordion>
   
   <Accordion title="How long are documents stored?">
-    There is no fixed default. Retention is set per workspace and can be overridden per pipeline.
+    Retention is set per workspace and can be overridden per pipeline. The default for every scope is `ephemeral` — data is deleted as soon as it has been processed.
     
-    A workspace sets retention for three scopes — original documents, redacted documents, and audit logs. Each is `forever`, `zeroDays` (delete as soon as processing finishes), or a fixed number of days.
+    A workspace sets retention for four scopes: original documents, redacted documents, enrichment intermediates (OCR layout, transcripts), and audit logs. Each is `persistent` (keep indefinitely), `ephemeral`, or `fixed` with a number of days.
     
-    A pipeline may override retention for the scopes it produces: redacted documents and audit logs. Original documents are ingested rather than produced, so they always follow the workspace baseline.
+    A pipeline may override retention for the scopes it produces: redacted documents, intermediates, and audit logs. Original documents are ingested rather than produced, so they always follow the workspace baseline.
     
     [Audit trails →](/features/audit-trails)
   </Accordion>
   
   <Accordion title="Can I integrate Nvisy with my existing tools?">
-    Workspaces connect to object storage (`s3`, `azure`, `gcs`) for syncing files in and out, and to LLM providers (`openai`, `anthropic`, `ollama`) for model-driven detection. Webhooks deliver events as runs and syncs progress.
+    Workspaces connect to object storage (`s3`, `azure`, `gcs`) and to cloud file services (`google_drive`, `dropbox`, `one_drive`, `box`) for moving documents in and out, and to LLM providers (`openai`, `anthropic`, `ollama`) for model-driven detection. Webhooks deliver events as detections and syncs progress.
     
     [View all integrations →](/features/integrations)
   </Accordion>
@@ -106,7 +106,7 @@ description: "Frequently asked questions about Nvisy"
   </Accordion>
   
   <Accordion title="Do you have access to my documents?">
-    With a self-hosted deployment, we have no access to your documents. They stay within the infrastructure you point Nvisy at — keep storage and model connections local or private if you need them to stay entirely in-network. Retention is yours to set per workspace and override per pipeline, including `zeroDays` to delete data as soon as processing finishes.
+    With a self-hosted deployment, we have no access to your documents. They stay within the infrastructure you point Nvisy at — keep storage and model connections local or private if you need them to stay entirely in-network. Retention is yours to set per workspace and override per pipeline, including `ephemeral` to delete data as soon as it has been processed.
   </Accordion>
   
   <Accordion title="Can I audit what was redacted?">
@@ -167,7 +167,7 @@ description: "Frequently asked questions about Nvisy"
   </Accordion>
   
   <Accordion title="Can I get notifications when redaction is complete?">
-    Yes. Register a webhook to receive events as runs and syncs progress, or subscribe to a run's server-sent events stream for live status.
+    Yes. Register a webhook to receive events as detections and syncs progress, or subscribe to a detection's server-sent events stream for live status.
     
     [Learn about webhooks →](/api-reference/introduction#webhooks)
   </Accordion>
@@ -181,7 +181,7 @@ description: "Frequently asked questions about Nvisy"
   </Accordion>
   
   <Accordion title="Can I redact specific types of information only?">
-    Yes. A policy targets specific labels from the deployment's taxonomy and names the operator to apply to each. Query `GET /catalog/labels/` to see what a deployment supports, then reference those labels from your policy.
+    Yes. A policy targets specific labels from the deployment's taxonomy and names the operator to apply to each. Query `GET /capabilities/labels` to see what a deployment supports, then reference those labels from your policy.
     
     Because `keep` is an operator, a policy can also record that something was recognized and deliberately left intact.
   </Accordion>
@@ -243,16 +243,20 @@ description: "Frequently asked questions about Nvisy"
     Typical documents finish in under 10 seconds, though this is not a committed figure — large documents, OCR-heavy scans, and busy instances take longer.
   </Accordion>
   
-  <Accordion title="Why am I getting rate limited?">
-    Retry with exponential backoff. In the TypeScript SDK, `NvisyApiError.isRetryable()` tells you whether an error is worth retrying.
+  <Accordion title="Which errors should I retry?">
+    Retry with exponential backoff. In the TypeScript SDK, `NvisyApiError.isRetryable()` tells you whether an error is worth retrying — it returns true for `5xx`, `408`, and `429`.
+    
+    Only retry automatically when the request is idempotent. Starting a detection accepts an `Idempotency-Key` header, so reusing one stable key across attempts returns the existing detection rather than starting a second one.
   </Accordion>
   
   <Accordion title="My file upload is failing">
     Check:
-    - File size (max 100 MB by default)
+    - File size — a `413` means the upload exceeded the workspace's `maxUploadBytes` cap, or the server-wide hard limit
     - File format is supported
     - File is not corrupted
-    - API key has upload permissions
+    - Your token has upload permissions in that workspace
+    
+    Uploads are atomic per batch: if any document in the request fails, none are recorded.
   </Accordion>
 </AccordionGroup>
 

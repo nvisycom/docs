@@ -15,7 +15,7 @@ description: "Common usage patterns with the Python SDK"
 from nvisy import Client
 
 with Client({"api_key": "your-api-token"}) as client:
-    workspaces = client.get_sync("/workspaces/")
+    workspaces = client.get_sync("/workspaces")
     print(workspaces)
 ```
 
@@ -29,7 +29,7 @@ from nvisy import Client
 
 async def main() -> None:
     async with Client({"api_key": "your-api-token"}) as client:
-        workspaces = await client.get("/workspaces/")
+        workspaces = await client.get("/workspaces")
         print(workspaces)
 
 
@@ -41,41 +41,54 @@ asyncio.run(main())
 ```python
 import os
 
-os.environ["NVISY_API_KEY"] = "your-api-token"
+os.environ["NVISY_API_TOKEN"] = "your-api-token"
 
 client = Client.from_environment()
 ```
 
-## Listing Files in a Workspace
+| Variable | Description |
+|----------|-------------|
+| `NVISY_API_TOKEN` | API token (required) |
+| `NVISY_BASE_URL` | Custom API endpoint |
+| `NVISY_MAX_TIMEOUT` | Request timeout in **milliseconds** |
+| `NVISY_MAX_RETRIES` | Maximum retry attempts |
+| `NVISY_USER_AGENT` | Custom user agent |
+| `DEBUG` | Set to `true`/`1`/`yes` to enable debug mode |
+
+## Calling an Endpoint by Path
+
+The SDK does not model resources, so requests are made by path and the response
+is returned as a plain `dict`. Consult the
+[API Reference](/api-reference/introduction) for the current paths, parameters,
+and response shapes.
 
 ```python
-files = client.get_sync(
-    "/workspaces/acme/files/",
+response = client.get_sync(
+    "/workspaces",
     params={"limit": 50},
 )
 
-for item in files["items"]:
-    print(item["id"], item["originalFilename"])
+for item in response["items"]:
+    print(item["id"])
 ```
 
-## Starting a Pipeline Run
-
-```python
-run = client.post_sync(
-    "/workspaces/acme/pipelines/default/runs/",
-    json={"fileId": file_id},
-)
-
-print(run["id"], run["status"])
-```
+<Warning>
+  Because paths are passed as raw strings, nothing in the SDK validates them
+  against the current API. Endpoint paths changed in the latest API revision —
+  verify each path against the
+  [API Reference](/api-reference/introduction) rather than copying from older
+  code.
+</Warning>
 
 ## Error Handling
 
 ```python
 from nvisy import ApiError, ConfigError, NetworkError
 
+workspace_id = "..."
+
 try:
-    response = client.get_sync("/workspaces/acme/")
+    response = client.get_sync(f"/workspaces/{workspace_id}")
 except ApiError as error:
     print(f"[{error.status_code}] {error}")
     if error.request_id:

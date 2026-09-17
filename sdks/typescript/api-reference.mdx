@@ -13,144 +13,564 @@ import { Nvisy } from "@nvisy/sdk";
 const client = new Nvisy({ apiToken: process.env.NVISY_API_TOKEN! });
 ```
 
-The constructor takes a single `ClientConfig` object.
+The constructor takes a single `NvisyOptions` object.
 
-### ClientConfig
+### NvisyOptions
 
 | Property | Type | Required | Default | Description |
 |----------|------|----------|---------|-------------|
-| `apiToken` | `string` | Yes | — | API token used for authentication |
+| `apiToken` | `string` | One of `apiToken` / `session` | — | Sent as `Authorization: Bearer <token>` |
+| `session` | `true` | One of `apiToken` / `session` | — | Use the browser cookie session instead |
 | `baseUrl` | `string` | No | `https://api.nvisy.com` | Custom API base URL |
 | `userAgent` | `string` | No | `@nvisy/sdk v.<version>` | Custom user agent |
 | `withLogging` | `boolean` | No | `false` | Enable debug logging |
 | `headers` | `Record<string, string>` | No | — | Extra headers on every request |
+| `credentials` | `RequestCredentials` | No | — | Forwarded to `fetch`; session auth defaults it to `"include"` |
+| `fetch` | `typeof fetch` | No | global `fetch` | Custom transport (e.g. a desktop app's native HTTP) |
 
-`DEFAULTS` and `VERSION` are exported for reference.
+`apiToken` and `session` are mutually exclusive in the type. `DEFAULTS` and
+`VERSION` are exported for reference.
+
+### Instance members
+
+```typescript
+client.baseUrl                       // string — the resolved base URL
+client.api                           // ApiClient — the typed openapi-fetch client
+client.withApiToken(apiToken: string) // Nvisy — a new client with a different token
+```
+
+`withApiToken` returns a new instance and leaves the original untouched; all
+other configuration is preserved.
 
 ### Services
 
 | Property | Description |
 |----------|-------------|
-| `auth` | Login, signup, logout |
-| `account` | The authenticated user's account |
-| `apiTokens` | Create and revoke API tokens |
-| `workspaces` | Workspace CRUD, avatars, notification settings |
+| `account` | The authenticated account, public profiles, avatars, sign-in identities |
+| `activities` | Workspace activity log and its export |
+| `analytics` | Workspace analytics and detection time series |
+| `apiTokens` | Create, update, and revoke API tokens |
+| `auth` | Logout and desktop-token minting |
+| `capabilities` | Labels, recognizers, connectors, and auth methods |
+| `connections` | External data source connections, OAuth, import/export |
+| `detections` | Detections, their analysis, events, and redactions |
+| `documents` | Upload, list, download, update, delete documents |
+| `invites` | Workspace invitations and invite codes |
 | `members` | Workspace membership |
-| `invites` | Workspace invitations |
-| `files` | Upload, list, download, delete files |
+| `notifications` | Account notifications and the unread stream |
 | `pipelines` | Pipeline definitions |
 | `policies` | Detection and redaction policies |
-| `runs` | Pipeline runs, detections, redaction, audit export |
-| `connections` | External data source connections |
+| `providers` | Workspace inference providers |
+| `redactions` | A redaction's review audit |
+| `reviews` | Document reviews, comments, assignees, timeline |
+| `status` | Health and readiness checks |
 | `syncs` | Connection sync jobs |
 | `webhooks` | Webhook endpoints |
-| `notifications` | User notifications |
-| `activities` | Workspace activity log |
-| `catalog` | Available labels and recognizers |
-| `status` | Service health |
+| `workspaces` | Workspace CRUD, avatars, notification settings |
 | `api` | Underlying typed HTTP client |
 
 <Note>
-  Most methods take `workspaceSlug` as their first argument. Workspaces are the
+  Most methods take `workspaceId` as their first argument. Workspaces are the
   top-level tenancy boundary.
+</Note>
+
+## NvisyGuest
+
+The pre-auth client, for the endpoints that work without a token: sign-in,
+the deployment's auth capabilities, and health checks.
+
+```typescript
+import { NvisyGuest } from "@nvisy/sdk/guest";
+
+const guest = new NvisyGuest({ baseUrl: "https://api.nvisy.com" });
+```
+
+It takes `NvisyGuestOptions` — the same transport options as `NvisyOptions`
+minus the two authentication fields — and exposes three services:
+
+```typescript
+guest.auth.loginAccount(credentials: Login): Promise<void>
+guest.auth.signupAccount(credentials: Signup): Promise<void>
+guest.auth.startOidcSignIn(provider: IdentityProvider, query?: { redirectUri?: string }): Promise<OidcStartResponse>
+
+guest.capabilities.getAuthCapabilities(): Promise<AuthCapabilities>
+
+guest.health.checkHealth(): Promise<Health>
+guest.health.checkLiveness(): Promise<Response>
+guest.health.checkReadiness(): Promise<Health>
+```
+
+<Note>
+  `loginAccount` and `signupAccount` set HttpOnly session and CSRF cookies and
+  return no body. Construct `new Nvisy({ session: true })` afterwards to use the
+  authenticated surface with that session.
 </Note>
 
 ## Workspaces
 
 ```typescript
 listWorkspaces(query?: CursorPagination): Promise<WorkspacePage>
-getWorkspace(workspaceSlug: string): Promise<Workspace>
+getWorkspace(workspaceId: string): Promise<Workspace>
 createWorkspace(workspace: CreateWorkspace): Promise<Workspace>
-updateWorkspace(workspaceSlug: string, updates: UpdateWorkspace): Promise<Workspace>
-deleteWorkspace(workspaceSlug: string): Promise<void>
-getNotificationSettings(workspaceSlug: string): Promise<NotificationSettings>
-updateNotificationSettings(workspaceSlug: string, settings: UpdateNotificationSettings): Promise<NotificationSettings>
-uploadAvatar(workspaceSlug: string, avatar: Blob): Promise<void>
-deleteAvatar(workspaceSlug: string): Promise<void>
+updateWorkspace(workspaceId: string, updates: UpdateWorkspace): Promise<Workspace>
+deleteWorkspace(workspaceId: string): Promise<void>
+getNotificationSettings(workspaceId: string): Promise<WorkspaceNotificationSettings>
+updateNotificationSettings(workspaceId: string, settings: UpdateWorkspaceNotificationSettings): Promise<WorkspaceNotificationSettings>
+uploadAvatar(workspaceId: string, avatar: Blob): Promise<void>
+deleteAvatar(workspaceId: string): Promise<void>
 ```
 
-## Files
+A `Workspace` carries `id`, `handle`, `displayName`, `memberRole`, `settings`,
+`createdBy`, and timestamps. `CreateWorkspace` requires `displayName`; `handle`,
+`description`, and `settings` are optional.
+
+## Documents
 
 ```typescript
-uploadFiles(workspaceSlug: string, files: Blob | Blob[]): Promise<File[]>
-listFiles(workspaceSlug: string, query?: ListFiles & CursorPagination): Promise<FilePage>
-getFile(workspaceSlug: string, fileId: string): Promise<File>
-downloadFile(workspaceSlug: string, fileId: string): Promise<Response>
-updateFile(workspaceSlug: string, fileId: string, updates: UpdateFile): Promise<File>
-deleteFile(workspaceSlug: string, fileId: string): Promise<void>
+uploadDocuments(workspaceId: string, documents: Blob | Blob[]): Promise<WorkspaceDocument[]>
+listDocuments(workspaceId: string, query?: ListWorkspaceDocuments & CursorPagination): Promise<WorkspaceDocumentPage>
+getDocument(workspaceId: string, documentId: string): Promise<WorkspaceDocument>
+downloadDocument(workspaceId: string, documentId: string): Promise<Response>
+updateDocument(workspaceId: string, documentId: string, updates: UpdateWorkspaceDocument): Promise<WorkspaceDocument>
+deleteDocument(workspaceId: string, documentId: string): Promise<void>
+deleteDocuments(workspaceId: string, documentIds: string[]): Promise<WorkspaceDeletedDocuments>
 ```
 
-`uploadFiles` accepts a single `Blob` or an array, and sends them as
-`multipart/form-data`. `downloadFile` returns the raw `Response` so you can
+`uploadDocuments` accepts a single `Blob` or an array, and sends them as
+`multipart/form-data`. `downloadDocument` returns the raw `Response` so you can
 stream the body.
+
+<ResponseField name="WorkspaceDocument" type="object">
+  <Expandable title="properties">
+    <ResponseField name="id" type="string" required>Unique document identifier.</ResponseField>
+    <ResponseField name="displayName" type="string" required>Display name.</ResponseField>
+    <ResponseField name="originalFilename" type="string" required>Original filename when uploaded.</ResponseField>
+    <ResponseField name="extension" type="string" required>File extension, without the dot.</ResponseField>
+    <ResponseField name="size" type="integer" required>Size in bytes.</ResponseField>
+    <ResponseField name="hash" type="string" required>Lowercase hex SHA-256 of the plaintext content.</ResponseField>
+    <ResponseField name="kind" type="DocumentKind" required>The document's role — original or redacted.</ResponseField>
+    <ResponseField name="uploadedBy" type="AccountRef" required>Account that uploaded the document.</ResponseField>
+    <ResponseField name="workspaceId" type="string" required>Owning workspace.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+`ListWorkspaceDocuments` filters by `search` (case-insensitive partial name),
+`formats`, `modality`, and `hash` — the last lets you check whether identical
+content already exists before uploading it.
+
+`deleteDocuments` is idempotent: it returns `deleted` for the ids that were
+removed and `skipped` for ids that were unknown, already deleted, in another
+workspace, or held by an in-progress detection.
 
 ## Pipelines
 
 ```typescript
-listPipelines(workspaceSlug: string, query?: PipelineFilter & CursorPagination): Promise<PipelineSummaryPage>
-createPipeline(workspaceSlug: string, pipeline: CreatePipeline): Promise<Pipeline>
-getPipeline(workspaceSlug: string, pipelineSlug: string): Promise<Pipeline>
-updatePipeline(workspaceSlug: string, pipelineSlug: string, updates: UpdatePipeline): Promise<Pipeline>
-deletePipeline(workspaceSlug: string, pipelineSlug: string): Promise<void>
+listPipelines(workspaceId: string, query?: CursorPagination & { search?: string; status?: PipelineStatus }): Promise<WorkspacePipelineSummaryPage>
+createPipeline(workspaceId: string, pipeline: CreateWorkspacePipeline): Promise<WorkspacePipeline>
+getPipeline(workspaceId: string, pipelineId: string): Promise<WorkspacePipeline>
+updatePipeline(workspaceId: string, pipelineId: string, updates: UpdateWorkspacePipeline): Promise<WorkspacePipeline>
+deletePipeline(workspaceId: string, pipelineId: string): Promise<void>
 ```
+
+`CreateWorkspacePipeline` requires `displayName`; `definition`, `description`,
+`retention`, and `status` are optional. A `PipelineStatus` is `draft`,
+`enabled`, or `disabled`.
 
 ## Policies
 
 ```typescript
-listPolicies(workspaceSlug: string, query?: CursorPagination): Promise<PolicyPage>
-createPolicy(workspaceSlug: string, policy: CreatePolicy): Promise<Policy>
-getPolicy(workspaceSlug: string, policySlug: string): Promise<Policy>
-updatePolicy(workspaceSlug: string, policySlug: string, updates: UpdatePolicy): Promise<Policy>
-deletePolicy(workspaceSlug: string, policySlug: string): Promise<void>
+listPolicies(workspaceId: string, query?: CursorPagination & WorkspacePoliciesQuery): Promise<WorkspacePolicySummaryPage>
+createPolicy(workspaceId: string, policy: CreateWorkspacePolicy): Promise<WorkspacePolicy>
+getPolicy(workspaceId: string, policyId: string): Promise<WorkspacePolicy>
+updatePolicy(workspaceId: string, policyId: string, updates: UpdateWorkspacePolicy): Promise<WorkspacePolicy>
+deletePolicy(workspaceId: string, policyId: string): Promise<void>
 ```
 
-## Runs
+`CreateWorkspacePolicy` is a tagged union on `source`: seed from a built-in
+template, or supply an inline `definition`. `displayName` and `description`
+override the body's own values. `WorkspacePoliciesQuery` filters by `kind`.
+
+## Detections
+
+A detection is one analysis pass of a document. It produces findings for review;
+applying them is a separate, repeatable step that creates a redaction.
 
 ```typescript
-listRuns(workspaceSlug: string, query?: PipelineRunsQuery & CursorPagination): Promise<PipelineRunPage>
-listPipelineRuns(workspaceSlug: string, pipelineSlug: string, query?: PipelineRunsQuery & CursorPagination): Promise<PipelineRunPage>
-createRun(workspaceSlug: string, pipelineSlug: string, run: CreatePipelineRun): Promise<PipelineRun>
-getRun(workspaceSlug: string, runId: string): Promise<PipelineRun>
-getDetections(workspaceSlug: string, runId: string): Promise<Audit>
-redact(workspaceSlug: string, runId: string): Promise<PipelineRun>
-downloadAuditJson(workspaceSlug: string, runId: string): Promise<Response>
-downloadAuditCsv(workspaceSlug: string, runId: string): Promise<Response>
-events(workspaceSlug: string, runId: string): Promise<Response>
+listDetections(workspaceId: string, query?: CursorPagination & WorkspaceDetectionsQuery): Promise<WorkspaceDetectionPage>
+listPipelineDetections(workspaceId: string, pipelineId: string, query?: CursorPagination & WorkspacePipelineDetectionsQuery): Promise<WorkspaceDetectionPage>
+createDetection(workspaceId: string, pipelineId: string, detection: CreateWorkspaceDetection): Promise<WorkspaceDetection>
+createAdhocDetection(workspaceId: string, detection: CreateAdhocWorkspaceDetection): Promise<WorkspaceDetection>
+getDetection(workspaceId: string, detectionId: string): Promise<WorkspaceDetection>
+getAnalysis(workspaceId: string, detectionId: string): Promise<Audit>
+getIntermediates(workspaceId: string, detectionId: string): Promise<ArtifactSet>
+downloadAudit(workspaceId: string, detectionId: string, query?: ExportQuery): Promise<Response>
+events(workspaceId: string, detectionId: string): Promise<Response>
+streamEvents(workspaceId: string, detectionId: string): AsyncGenerator<DetectionStatusEvent>
+listRedactions(workspaceId: string, detectionId: string, query?: CursorPagination): Promise<WorkspaceRedactionResultPage>
+createRedaction(workspaceId: string, detectionId: string, redaction: RedactWorkspaceDetection): Promise<WorkspaceRedactionResult>
 ```
 
-`createRun` starts detection over a single file:
+`createDetection` starts analysis over a single document:
 
 ```typescript
-const run = await client.runs.createRun(workspaceSlug, pipelineSlug, {
-  fileId: file.id,
+const detection = await client.detections.createDetection(workspaceId, pipelineId, {
+  documentId: document.id,
 });
 ```
 
-`events` returns a server-sent events stream of `RunStatusEvent` values for
-live progress. `redact` applies redactions once you are satisfied with the
-detections.
+<ParamField path="documentId" type="string" required>
+  The document to analyze.
+</ParamField>
+
+<ParamField path="scope" type="DocumentContext">
+  Per-document languages, jurisdictions, and document labels. Overrides the
+  pipeline's `defaultScope` when present.
+</ParamField>
+
+`createAdhocDetection` names policies directly instead of going through a
+pipeline; it requires `documentId` and a non-empty `policyIds` array, and also
+accepts `scope` and `retentionOverride`.
+
+### Detection status
+
+| Status | Meaning |
+|--------|---------|
+| `pending` | Enqueued; no worker has picked it up yet |
+| `executing` | A worker is actively analyzing the document |
+| `complete` | Analysis done; the detection is ready to redact |
+| `failed` | Detection failed; `error` holds the reason |
+
+A `WorkspaceDetection` carries `id`, `inputDocumentId`, `inputDocumentName`,
+`pipelineId` (absent for an ad-hoc detection), `status`, `triggerType`,
+`triggeredBy`, `metadata`, `startedAt`, and `completedAt`.
+
+<Note>
+  Redaction does not change a detection's status. Each `createRedaction` call
+  produces a new `WorkspaceRedactionResult`, whose `outputDocumentId` points at
+  the redacted document.
+</Note>
+
+### Streaming status
+
+`streamEvents` parses the server-sent event stream into typed
+`DetectionStatusEvent` values (`{ detectionId, status }`). It yields the current
+status immediately, then each transition, and ends once the detection settles.
+Break out of the loop to close the stream early.
+
+```typescript
+for await (const event of client.detections.streamEvents(workspaceId, detectionId)) {
+  console.log(event.detectionId, event.status);
+}
+```
+
+`events` returns the raw `Response` if you would rather handle the
+`text/event-stream` body yourself.
+
+### Audit and intermediates
+
+`getAnalysis` returns the `Audit` — `report`, `context`, `codec`, `usage`, and
+an optional `recognition`. `downloadAudit` returns it as a file: `csv` by
+default (a zip of `entities.csv`, `provenance.csv`, and `reviews.csv`), or
+`json` with `{ format: "json" }`.
+
+`getIntermediates` returns an `ArtifactSet` of modality-tagged parts — an
+image's OCR layout, an audio clip's transcript, or tokenized text. A detection
+whose analysis ran no enricher has none and responds 404.
+
+## Redactions
+
+```typescript
+getReview(workspaceId: string, redactionId: string): Promise<Audit>
+```
+
+Returns the redaction's review audit — what was redacted and why — independent
+of the detection it came from.
+
+## Reviews
+
+A review is a human review thread opened on a document, with assignees,
+comments, and a lifecycle.
+
+```typescript
+listReviews(workspaceId: string, query?: CursorPagination & WorkspaceReviewsQuery): Promise<WorkspaceReviewPage>
+listForDocument(workspaceId: string, documentId: string): Promise<WorkspaceReview[]>
+createForDocument(workspaceId: string, documentId: string, review: CreateWorkspaceReview): Promise<WorkspaceReview>
+getReview(workspaceId: string, reviewId: string): Promise<WorkspaceReview>
+updateReview(workspaceId: string, reviewId: string, updates: RenameWorkspaceReview): Promise<WorkspaceReview>
+deleteReview(workspaceId: string, reviewId: string): Promise<void>
+assignReviewer(workspaceId: string, reviewId: string, accountId: string): Promise<WorkspaceReview>
+unassignReviewer(workspaceId: string, reviewId: string, accountId: string): Promise<WorkspaceReview>
+verifyReview(workspaceId: string, reviewId: string): Promise<WorkspaceReview>
+reopenReview(workspaceId: string, reviewId: string): Promise<WorkspaceReview>
+getTimeline(workspaceId: string, reviewId: string, query?: CursorPagination): Promise<WorkspaceReviewEntryPage>
+getEvents(workspaceId: string, reviewId: string, query?: CursorPagination): Promise<WorkspaceReviewEventPage>
+addComment(workspaceId: string, reviewId: string, comment: CreateWorkspaceComment): Promise<WorkspaceComment>
+updateComment(workspaceId: string, commentId: string, updates: UpdateWorkspaceComment): Promise<WorkspaceComment>
+deleteComment(workspaceId: string, commentId: string): Promise<void>
+linkDetection(workspaceId: string, reviewId: string, detectionId: string): Promise<WorkspaceReview>
+linkRedaction(workspaceId: string, reviewId: string, redactionId: string): Promise<WorkspaceReview>
+```
+
+A `WorkspaceReview` carries `id`, `documentId`, `displayName`, `author`,
+`assignees`, `reviewStatus`, and timestamps. `reviewStatus` is `needs_review`,
+`in_review`, or `resolved`. `CreateWorkspaceReview` takes `displayName`;
+`CreateWorkspaceComment` takes `body`.
+
+`WorkspaceReviewsQuery` filters by `documentId`, `author`, `assignee`, and
+`reviewStatus`. `assignReviewer`, `linkDetection`, and `linkRedaction` are
+idempotent. `getTimeline` interleaves comments with lifecycle events;
+`getEvents` returns the lifecycle events alone.
+
+## Providers
+
+Inference providers configured per workspace.
+
+```typescript
+listProviders(workspaceId: string, query?: CursorPagination & WorkspaceProvidersQuery): Promise<WorkspaceProviderPage>
+createProvider(workspaceId: string, provider: CreateWorkspaceProvider): Promise<WorkspaceProvider>
+getProvider(workspaceId: string, providerId: string): Promise<WorkspaceProvider>
+updateProvider(workspaceId: string, providerId: string, updates: UpdateWorkspaceProvider): Promise<WorkspaceProvider>
+deleteProvider(workspaceId: string, providerId: string): Promise<void>
+verifyProvider(workspaceId: string, providerId: string): Promise<WorkspaceConnectionVerification>
+```
+
+`CreateWorkspaceProvider` requires `displayName` and a `config`
+(`ProviderConfig`), and accepts `isActive`. `verifyProvider` returns
+`{ reachable, error? }`.
+
+## Connections
+
+```typescript
+listConnections(workspaceId: string, query?: CursorPagination & { provider?: string[] }): Promise<WorkspaceConnectionPage>
+createConnection(workspaceId: string, connection: CreateWorkspaceConnection): Promise<WorkspaceConnection>
+getConnection(workspaceId: string, connectionId: string): Promise<WorkspaceConnection>
+updateConnection(workspaceId: string, connectionId: string, updates: UpdateWorkspaceConnection): Promise<WorkspaceConnection>
+deleteConnection(workspaceId: string, connectionId: string): Promise<void>
+verifyConnection(workspaceId: string, connectionId: string): Promise<WorkspaceConnectionVerification>
+startFileServiceOAuth(workspaceId: string, provider: FileServiceProvider, request: StartFileServiceOAuth): Promise<OAuthStartResponse>
+importFiles(workspaceId: string, connectionId: string, request: ImportWorkspaceFiles): Promise<WorkspaceConnectionSync>
+exportFiles(workspaceId: string, connectionId: string, request: ExportWorkspaceFiles): Promise<WorkspaceConnectionSync>
+getPickerToken(workspaceId: string, connectionId: string, request?: WorkspacePickerTokenRequest): Promise<WorkspacePickerToken>
+```
+
+`startFileServiceOAuth` returns an `authorizeUrl` to send the user to; on
+consent the callback completes the connection. `importFiles` takes the files
+the user chose in the provider's picker and `exportFiles` writes redacted
+outputs back — both return a `WorkspaceConnectionSync`. `getPickerToken` mints a
+short-lived provider access token for a browser file picker.
+
+## Syncs
+
+```typescript
+listWorkspaceSyncs(workspaceId: string, query?: CursorPagination & { provider?: string[]; status?: SyncStatus }): Promise<WorkspaceConnectionSyncPage>
+startSync(workspaceId: string, connectionId: string): Promise<WorkspaceConnectionSync>
+listSyncs(workspaceId: string, connectionId: string, query?: CursorPagination): Promise<WorkspaceConnectionSyncPage>
+getSync(workspaceId: string, connectionId: string, syncId: string): Promise<WorkspaceConnectionSync>
+cancelSync(workspaceId: string, connectionId: string, syncId: string): Promise<WorkspaceConnectionSync>
+```
+
+`startSync` runs an object-store connection's configured direction.
+
+## Webhooks
+
+```typescript
+listWebhooks(workspaceId: string, query?: CursorPagination): Promise<WorkspaceWebhookPage>
+createWebhook(workspaceId: string, webhook: CreateWorkspaceWebhook): Promise<WorkspaceWebhookCreated>
+getWebhook(workspaceId: string, webhookId: string): Promise<WorkspaceWebhook>
+updateWebhook(workspaceId: string, webhookId: string, updates: UpdateWorkspaceWebhook): Promise<WorkspaceWebhook>
+deleteWebhook(workspaceId: string, webhookId: string): Promise<void>
+testWebhook(workspaceId: string, webhookId: string, options?: TestWorkspaceWebhook): Promise<WorkspaceWebhookResult>
+```
+
+`CreateWorkspaceWebhook` requires `displayName`, `description`, `url`, and
+`events`, and accepts `headers` and `status`.
+
+<Warning>
+  `createWebhook` returns `WorkspaceWebhookCreated`, whose `secret` is the
+  signing secret — returned exactly once. Store it immediately.
+</Warning>
+
+### Verifying deliveries
+
+The `@nvisy/sdk/webhooks` entry point verifies an incoming delivery and parses
+it into a typed event, using Web Crypto so it runs in Node, browsers, edge
+runtimes, and workers.
+
+```typescript
+import { constructEventFromRequest } from "@nvisy/sdk/webhooks";
+
+const delivery = await constructEventFromRequest(request, {
+  secret: process.env.NVISY_WEBHOOK_SECRET!,
+});
+
+// delivery.event, delivery.requestId, delivery.timestamp, delivery.payload
+```
+
+For runtimes without a Fetch `Request`, `constructEvent` takes the raw body and
+headers directly; `WEBHOOK_HEADERS` names the four headers a delivery carries
+(`X-Webhook-Signature`, `X-Webhook-Timestamp`, `X-Webhook-Event`,
+`X-Webhook-Request-Id`). Verification failures throw `WebhookSignatureError`.
+
+<Warning>
+  Pass the **raw** request body, not a re-serialized one — re-encoding JSON
+  changes the bytes the signature was computed over.
+</Warning>
+
+## Members and Invites
+
+```typescript
+listMembers(workspaceId: string, query?: ListWorkspaceMembers & CursorPagination): Promise<WorkspaceMemberPage>
+getMember(workspaceId: string, accountId: string): Promise<WorkspaceMember>
+updateMember(workspaceId: string, accountId: string, updates: UpdateWorkspaceMember): Promise<WorkspaceMember>
+removeMember(workspaceId: string, accountId: string): Promise<void>
+leaveWorkspace(workspaceId: string): Promise<void>
+```
+
+```typescript
+listInvites(workspaceId: string, query?: ListWorkspaceInvites & CursorPagination): Promise<WorkspaceInvitePage>
+sendInvite(workspaceId: string, invite: CreateWorkspaceInvite): Promise<WorkspaceInviteSent>
+cancelInvite(workspaceId: string, inviteId: string): Promise<void>
+replyToInvite(workspaceId: string, inviteId: string, reply: ReplyWorkspaceInvite): Promise<WorkspaceMember>
+generateInviteCode(workspaceId: string, options: GenerateWorkspaceInviteCode): Promise<WorkspaceInviteCode>
+replyToInviteCode(inviteCode: string, reply: ReplyWorkspaceInvite): Promise<WorkspaceMember | null>
+previewInvite(inviteCode: string): Promise<InvitePreview>
+```
+
+A member's `memberRole` is `owner`, `admin`, `editor`, or `reviewer`.
+`UpdateWorkspaceMember` takes `role`; `CreateWorkspaceInvite` requires
+`inviteeEmail`, `invitedRole`, and `expiresIn`.
+
+## Account
+
+```typescript
+getAccount(): Promise<Account>
+updateAccount(updates: UpdateAccount): Promise<Account>
+deleteAccount(): Promise<void>
+getPublicAccount(accountId: string): Promise<PublicAccount>
+uploadAvatar(accountId: string, avatar: Blob): Promise<Account>
+deleteAvatar(accountId: string): Promise<void>
+listIdentities(): Promise<AccountIdentities>
+setPassword(request: SetPassword): Promise<void>
+removePassword(): Promise<void>
+linkIdentity(provider: IdentityProvider, query?: { reauthProof?: string; redirectUri?: string }): Promise<OidcStartResponse>
+unlinkIdentity(provider: IdentityProvider): Promise<void>
+reauth(provider: IdentityProvider, query?: { redirectUri?: string }): Promise<OidcStartResponse>
+```
+
+An `Account` carries `id`, `username`, `emailAddress`, `displayName`,
+`avatarUrl`, `isActivated`, `isSuspended`, and timestamps.
+
+`listIdentities` reports the account's sign-in methods — its password and any
+linked OIDC providers. `linkIdentity` and `reauth` return the provider
+authorize URL to redirect the user to.
+
+<Note>
+  Removing a password or unlinking a provider is refused when it is the
+  account's only remaining sign-in method. `linkIdentity` requires a step-up
+  `reauthProof` obtained from `reauth`.
+</Note>
+
+## Authentication
+
+Post-login operations live on `client.auth`; sign-in itself is on
+[`NvisyGuest`](#nvisyguest).
+
+```typescript
+logoutAccount(): Promise<void>
+mintDesktopToken(request: DesktopTokenRequest): Promise<AccountDesktopToken>
+```
+
+`mintDesktopToken` mints a long-lived native-app token from an active browser
+session. It takes `{ redirectUri }` and returns `{ apiToken, redirectUri }`.
 
 ## API Tokens
 
 ```typescript
-listApiTokens(query?: CursorPagination): Promise<ApiTokenPage>
-getApiToken(tokenId: string): Promise<ApiToken>
-createApiToken(token: CreateApiToken): Promise<ApiTokenWithJWT>
-updateApiToken(tokenId: string, updates: UpdateApiToken): Promise<ApiToken>
+listApiTokens(query?: CursorPagination): Promise<AccountApiTokenPage>
+getApiToken(tokenId: string): Promise<AccountApiToken>
+createApiToken(token: CreateAccountApiToken): Promise<AccountApiTokenWithJwt>
+updateApiToken(tokenId: string, updates: UpdateAccountApiToken): Promise<AccountApiToken>
 revokeApiToken(tokenId: string): Promise<void>
 ```
 
+`CreateAccountApiToken` requires `displayName` and `expiresIn`, one of `never`,
+`in7Days`, `in30Days`, `in90Days`, or `in1Year`.
+
 <Warning>
-  `createApiToken` returns the JWT exactly once. Store it immediately — it
-  cannot be retrieved later.
+  `createApiToken` returns `AccountApiTokenWithJwt`, whose `token` is the JWT —
+  returned exactly once. Store it immediately; it cannot be retrieved later.
 </Warning>
 
-## Authentication
+## Capabilities
+
+What this deployment supports. Replaces the former catalog endpoints.
 
 ```typescript
-loginAccount(credentials: Login): Promise<AuthToken>
-signupAccount(credentials: Signup): Promise<AuthToken>
-logoutAccount(): Promise<void>
+listLabels(): Promise<LabelCatalog>
+listRecognizers(): Promise<RecognizerCatalog>
+listConnectors(): Promise<ConnectorCapabilities>
+getAuthCapabilities(): Promise<AuthCapabilities>
+```
+
+`listLabels` returns the built-in taxonomy as a `LabelCatalog` — a map of label
+id to its definition. `listRecognizers` returns the engine's registered
+recognizers grouped into `ner` and `llm`. `listConnectors` returns
+`{ fileServices, objectStores, inference }`
+— an OAuth file-service provider is offered only when its app is configured.
+`getAuthCapabilities` is also available pre-auth on `NvisyGuest`.
+
+## Analytics and Activities
+
+```typescript
+getAnalytics(workspaceId: string): Promise<WorkspaceAnalytics>
+getDetectionTimeSeries(workspaceId: string, query?: DateWindow): Promise<WorkspaceDetectionTimeSeries>
+```
+
+`WorkspaceAnalytics` aggregates `storage`, `detections`, and `usage`.
+
+```typescript
+listActivities(workspaceId: string, query?: WorkspaceActivityFilterQuery & DateWindow & CursorPagination): Promise<WorkspaceActivityPage>
+exportActivities(workspaceId: string, query?: WorkspaceActivityFilterQuery & DateWindow & WorkspaceActivityExportOptions): Promise<Response>
+```
+
+`WorkspaceActivityFilterQuery` filters by `actor` and `type`.
+
+## Notifications
+
+```typescript
+listNotifications(query?: CursorPagination): Promise<AccountNotificationPage>
+getUnreadNotificationsStatus(): Promise<AccountUnreadStatus>
+markAllRead(): Promise<AccountMarkedReadStatus>
+markRead(notificationId: string): Promise<void>
+events(): Promise<Response>
+streamEvents(): AsyncGenerator<UnreadCountEvent>
+```
+
+`streamEvents` yields the current unread count immediately, then each change.
+
+## Status
+
+```typescript
+checkHealth(): Promise<Health>
+checkLiveness(): Promise<Response>
+checkReadiness(): Promise<Health>
+```
+
+`Health` carries `status`, a `checks` array of per-dependency health, and a
+`timestamp`. `checkLiveness` probes no dependencies and has no body, so it
+returns the raw `Response`; a non-2xx status throws.
+
+## Date Windows
+
+Methods taking a `DateWindow` accept an inclusive `from`/`to` day range as
+`YYYY-MM-DD` strings. Both are optional: `to` defaults to today (UTC), and
+`from` defaults to a fixed window back from `to`.
+
+```typescript
+const series = await client.analytics.getDetectionTimeSeries(workspaceId, {
+  from: "2026-01-01",
+  to: "2026-01-31",
+});
 ```
 
 ## Pagination
@@ -160,13 +580,16 @@ List methods are cursor-paginated and accept `CursorPagination`:
 | Property | Type | Description |
 |----------|------|-------------|
 | `after` | `string` | Cursor pointing at the last item of the previous page |
-| `limit` | `number` | Maximum items to return |
+| `limit` | `number` | Maximum items to return (1–100, default 20) |
+| `includeCount` | `boolean` | Populate the response's `total`; defaults to `false` since counting costs an extra query |
+
+Every page has `items`, an optional `nextCursor`, and an optional `total`.
 
 ```typescript
 let after: string | undefined;
 do {
-  const page = await client.files.listFiles(workspaceSlug, { after, limit: 50 });
-  for (const file of page.items) console.log(file.id);
+  const page = await client.documents.listDocuments(workspaceId, { after, limit: 50 });
+  for (const document of page.items) console.log(document.id);
   after = page.nextCursor;
 } while (after);
 ```
@@ -177,59 +600,34 @@ do {
 import { NvisyError, NvisyApiError } from "@nvisy/sdk";
 ```
 
-`NvisyError` is the base class. `NvisyApiError` extends it for API responses:
+`NvisyError` is the base class, thrown for SDK-level problems such as an
+invalid API token. `NvisyApiError` extends it for API responses:
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `message` | `string` | User-facing message |
+| `name` | `string` | Error type identifier (e.g. `ValidationError`, `NotFoundError`) |
+| `message` | `string` | Human-readable message safe to display |
 | `statusCode` | `number` | HTTP status code |
-| `resource` | `string \| undefined` | Resource involved |
-| `suggestion` | `string \| undefined` | Suggested remedy |
-| `validation` | `object \| undefined` | Field-level validation details |
 
-Helpers: `isClientError()` (4xx), `isServerError()` (5xx), `isRetryable()`.
+Helpers: `isClientError()` (4xx), `isServerError()` (5xx), `isRetryable()`
+(5xx, 408, or 429), and `toJSON()`.
 
 ```typescript
 try {
-  await client.runs.redact(workspaceSlug, runId);
+  await client.detections.createRedaction(workspaceId, detectionId, {});
 } catch (error) {
   if (error instanceof NvisyApiError) {
     if (error.isRetryable()) {
-      // Retryable transport/server error. Retrying `redact` is not automatically
-      // safe — the API defines no idempotency for it, so re-read the run and
-      // check whether it already reached `completed` before trying again.
+      // Retryable transport/server error. Retrying `createRedaction` is not
+      // automatically safe — each call produces a new redaction, so re-read
+      // the detection's redactions before trying again.
     }
-    console.error(error.statusCode, error.message, error.suggestion);
+    console.error(error.statusCode, error.name, error.message);
   }
 }
 ```
 
 <Warning>
   `isRetryable()` reports that the *error* is of a transient kind, not that the
-  *operation* is safe to repeat. Retry automatically only for reads or for
-  requests carrying an idempotency key.
+  *operation* is safe to repeat. Retry automatically only for reads.
 </Warning>
-
-### Idempotency Keys
-
-`createRun` accepts an `Idempotency-Key` header: repeating a request with the
-same key returns the existing run instead of starting a second one. Generate one
-key per logical run and reuse it across every retry of that run.
-
-```typescript
-const idempotencyKey = crypto.randomUUID();
-
-const run = await withRetry(() =>
-  client.runs.createRun(
-    workspaceSlug,
-    pipelineSlug,
-    { fileId: file.id },
-    { headers: { "Idempotency-Key": idempotencyKey } },
-  ),
-);
-```
-
-<Note>
-  Generating a fresh key inside the retry loop defeats the purpose — each
-  attempt would then look like a new run.
-</Note>

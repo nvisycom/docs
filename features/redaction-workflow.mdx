@@ -3,102 +3,161 @@ title: "Redaction Workflow"
 description: "How detection and redaction fit together in Nvisy"
 ---
 
-Redaction in Nvisy is deliberately two-phase. A run first **analyzes** a
-document and records what it found; nothing is modified until you **apply**
-redactions. That separation is what makes the process reviewable and
+Redaction in Nvisy is deliberately two-phase. A **detection** first analyzes a
+document and records what it found; nothing is modified until you create a
+**redaction**. That separation is what makes the process reviewable and
 auditable.
 
 ## The Phases
 
 <Steps>
   <Step title="Upload">
-    Add a file to a workspace. It is stored with its metadata and versioned.
+    Add a document to a workspace. It is stored with its metadata and hashed.
   </Step>
-  <Step title="Analyze">
-    Start a run against a pipeline. Recognition produces entities, each with a
-    label, confidence, and location.
+  <Step title="Detect">
+    Start a detection against a pipeline. Recognition produces entities, each
+    with a label, confidence, and location.
   </Step>
   <Step title="Review">
-    Inspect the run's audit. Accept the policy's default treatment, or override
-    individual entities.
+    Inspect the detection's analysis. Accept the policy's decisions, or layer
+    reviewer edits over them.
   </Step>
   <Step title="Redact">
-    Apply redactions. The engine writes a new output file and finalizes the
-    audit.
+    Create a redaction. The engine writes a new output document and records a
+    review audit of what was redacted and why.
   </Step>
 </Steps>
 
-## Run Status
+## Detection Status
 
-A run's `status` tells you which phase it is in:
+A detection's `status` tells you which phase it is in:
 
 | Status | Meaning |
 |--------|---------|
-| `queued` | Enqueued for detection; no worker has started yet |
-| `analyzing` | A worker is actively analyzing the document |
-| `analyzed` | Detection finished; awaiting review |
-| `completed` | Redaction applied; run finished |
-| `failed` | Run failed — see the run's `error` field |
-| `cancelled` | Cancelled by a user |
+| `pending` | Enqueued for detection; no worker has picked it up yet |
+| `executing` | A worker is actively analyzing the document |
+| `complete` | Analysis done; the detection is ready to redact |
+| `failed` | Detection failed — see the detection's `error` field |
 
 <Note>
-  A run stops at `analyzed` and stays there. It only reaches `completed` after
-  redaction is explicitly applied, so an unreviewed document is never
-  silently modified.
+  A detection settles at `complete` and stays there. Redaction is a separate,
+  repeatable action over a complete detection and does not change this status,
+  so an unreviewed document is never silently modified.
 </Note>
 
-Poll the run, or subscribe to its event stream for live progress:
+Poll the detection, or subscribe to its event stream for live progress:
 
 ```
-GET /workspaces/{workspaceSlug}/runs/{runId}/
-GET /workspaces/{workspaceSlug}/runs/{runId}/events
+GET /workspaces/{workspaceId}/detections/{detectionId}
+GET /workspaces/{workspaceId}/detections/{detectionId}/events
 ```
 
-## Pipelines and Policies
-
-A **pipeline** carries the detection and governance intent: a default scope and
-the policies to apply. A **policy** defines how recognized entities are treated.
-Both are workspace resources, created once and reused across runs.
-
-Recognition itself is server-wide — the built-in pattern set plus the
-recognizers available in the catalog:
-
-```
-GET /catalog/labels/
-GET /catalog/recognizers/
+```typescript
+for await (const event of client.detections.streamEvents(
+  workspaceId,
+  detectionId,
+)) {
+  console.log(event.status);
+  if (event.status === "complete") break;
+}
 ```
 
-## The Audit
+The stream yields the current status immediately, then each transition, and
+ends once the detection settles.
 
-`GET /workspaces/{workspaceSlug}/runs/{runId}/detections/` returns the run's
-audit, which has three parts:
+## Pipelines, Policies, and Ad-hoc Detections
+
+A **pipeline** carries the detection and governance intent: its `definition`
+holds an optional `defaultScope` and the `policyIds` to apply. A **policy**
+defines how recognized entities are treated. Both are workspace resources,
+created once and reused.
+
+```
+POST /workspaces/{workspaceId}/pipelines/{pipelineId}/detections
+```
+
+```typescript
+const detection = await client.detections.createDetection(
+  workspaceId,
+  pipelineId,
+  { documentId },
+);
+```
+
+You can also skip the pipeline and name the policies directly:
+
+```
+POST /workspaces/{workspaceId}/detections
+```
+
+```typescript
+const detection = await client.detections.createAdhocDetection(workspaceId, {
+  documentId,
+  policyIds: [policyId],
+});
+```
+
+Recognition itself is server-wide — the built-in pattern set plus whatever
+recognizers the engine has registered. Ask the deployment what it offers:
+
+```
+GET /capabilities/labels
+GET /capabilities/recognizers
+```
+
+## The Analysis
+
+`GET /workspaces/{workspaceId}/detections/{detectionId}/analysis` returns the
+detection's audit — what analysis found in one document:
 
 | Field | Description |
 |-------|-------------|
-| `body` | The main document body's entity group |
-| `parts` | One entry per container part, keyed by its part ID |
-| `context` | Recognition facts — languages, countries, OCR mode, correlation ID |
+| `report` | The detections themselves: `parts`, each tagged by modality, each holding entities |
+| `context` | What the caller asserted: languages, jurisdictions, document metadata |
+| `codec` | How the document was decoded, so redaction decodes identically |
+| `recognition` | Custom labels this request introduced, and how they are matched |
 
-Container formats expose their internal parts. A DOCX, for example, keys
-embedded media by its zip entry name, such as `word/media/image1.png`, so an
-image inside a document is analyzed in its own right.
+The `report`'s `parts` is a list, not a map. Each part carries a modality
+(`text`, `image`, `audio`, `tabular`), its `entities`, and an `id` — a path of
+one or more segments naming where it sits in the document. Container formats
+expose their internal parts this way, so an image embedded in a DOCX is
+analyzed in its own right.
+
+<Note>
+  Reviewer edits are not in the audit. They are your own input, applied to the
+  report before redaction, so an audit carries what analysis found *as
+  amended* rather than the amendments themselves.
+</Note>
 
 ### Entities
 
-Each entity group is tagged by modality — `text`, `image`, `audio`, or
-`tabular` — and holds records with a consistent shape:
+Each entity holds records with a consistent shape:
 
 | Field | Description |
 |-------|-------------|
-| `label` | What was recognized |
-| `confidence` | Recognition confidence |
+| `id` | Stable identity for this entity |
+| `label` | What was recognized, resolved through the label catalog |
+| `confidence` | Effective confidence, `0.0` to `1.0` |
 | `location` | Where it sits, in modality-native coordinates |
 | `language` | Detected language, where applicable |
-| `coref` | Coreference link to related mentions |
-| `audit` | Provenance events for this entity |
+| `coref` | Coreference link to other mentions of the same subject |
+| `audit` | Tamper-evident provenance trail for this entity |
 
-Alongside each entity is an optional `review` — a reviewer-supplied override.
-When absent, the matching policy rule applies.
+### Intermediates
+
+When the analysis ran an enricher, its extracted content is available
+separately — an image's OCR layout, an audio clip's transcript, or tokenized
+text:
+
+```
+GET /workspaces/{workspaceId}/detections/{detectionId}/intermediates
+```
+
+<Tip>
+  Intermediates let a client search the extracted content and add entities the
+  analysis missed. A detection whose analysis ran no enricher has none and
+  returns 404.
+</Tip>
 
 ## Redaction Operators
 
@@ -127,42 +186,103 @@ rule can name an operator per modality:
   auditor needs to see.
 </Tip>
 
-Reversible operators such as `pseudonymize` and `encrypt` resolve against the
-per-policy vault and key provider, so the policy that authorized an override
-also governs how it can be undone.
+Modalities a rule does not cover fall through to the policy's `fallback`, and
+entities with no operator from either source are skipped.
+
+## Applying Redaction
+
+```
+POST /workspaces/{workspaceId}/detections/{detectionId}/redactions
+```
+
+Omit `edits` to redact with the policy decisions exactly as detected, or pass
+them to suppress a false positive, retag a detection, or add one the analysis
+missed. Edits are grouped by modality:
+
+```typescript
+const redaction = await client.detections.createRedaction(
+  workspaceId,
+  detectionId,
+  { edits: { text: [/* reviewer edits */] } },
+);
+```
+
+Each request produces a **new** redaction, so the same detection can be
+redacted several times with different edits — one document, several outputs.
+
+A redaction carries its `outputDocumentId` (downloadable through the normal
+document endpoints) and a review audit recording what was redacted and why:
+
+```
+GET /workspaces/{workspaceId}/detections/{detectionId}/redactions
+GET /workspaces/{workspaceId}/redactions/{redactionId}/review
+```
 
 ## Scope
 
-A run's scope carries per-document recognition settings — languages,
-jurisdictions, and OCR mode. Pipelines supply a default scope; a run can
-override it:
+A detection's scope carries what the caller asserts about the document —
+languages, jurisdictions, and free-form metadata. Pipelines supply a
+`defaultScope`; a detection can override it:
 
 ```json
 {
-  "fileId": "...",
+  "documentId": "...",
   "scope": {
     "languages": ["en"],
-    "ocrMode": { "kind": "force", "dpi": 300 }
+    "countries": ["US"],
+    "metadata": { "purpose": "fraud_detection", "audience": ["auditor"] }
   }
 }
 ```
 
-OCR modes are `auto`, `force`, and `never`.
+<Note>
+  Everything in a scope defaults to empty. Assert nothing and the recognizers
+  use their own defaults — the language-detection enricher fills the gap when
+  `languages` is empty.
+</Note>
 
-<Warning>
-  `auto` is intended to extract the text layer and render only pages that lack
-  one, but the text-layer parser that drives that decision is not in place yet
-  — today only `force` actually renders.
-</Warning>
+How pages are rendered for OCR is a codec concern rather than a scope one; see
+[Supported Formats](/features/supported-formats).
+
+## Reviews
+
+A review is a named discussion on a document with a manual sign-off lifecycle.
+It is opened explicitly, and a document may have several:
+
+```
+POST /workspaces/{workspaceId}/documents/{documentId}/reviews
+GET  /workspaces/{workspaceId}/reviews
+POST /workspaces/{workspaceId}/reviews/{reviewId}/verify
+POST /workspaces/{workspaceId}/reviews/{reviewId}/reopen
+```
+
+Its `reviewStatus` is derived from its events, never set directly: a linked
+detection makes it `needs_review`, a linked redaction `in_review`, and
+verification `resolved`.
+
+```typescript
+const review = await client.reviews.createForDocument(workspaceId, documentId, {
+  displayName: "Q3 contract sign-off",
+});
+
+await client.reviews.linkDetection(workspaceId, review.id, detectionId);
+await client.reviews.assignReviewer(workspaceId, review.id, accountId);
+await client.reviews.verifyReview(workspaceId, review.id);
+```
+
+Comments and lifecycle events interleave into one timeline, at
+`/workspaces/{workspaceId}/reviews/{reviewId}/timeline`.
 
 ## Exporting the Audit
 
-Once a run completes, export its audit for archiving:
+Once a detection completes, export its audit for archiving:
 
 ```
-GET /workspaces/{workspaceSlug}/runs/{runId}/audit/json
-GET /workspaces/{workspaceSlug}/runs/{runId}/audit/csv
+GET /workspaces/{workspaceId}/detections/{detectionId}/audit
 ```
+
+`format` defaults to `csv` — a zip of `entities.csv`, `provenance.csv`, and
+`reviews.csv` — or pass `json` for a pretty-printed JSON file.
 
 ## Next Steps
 

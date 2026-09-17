@@ -6,7 +6,7 @@ description: "What Nvisy records about detection, redaction, and workspace activ
 Nvisy records two independent trails:
 
 <CardGroup cols={2}>
-  <Card title="Run Audit" icon="file-magnifying-glass">
+  <Card title="Detection Audit" icon="file-magnifying-glass">
     Per-entity provenance — why each entity was recognized and what happened to it
   </Card>
   <Card title="Activity Log" icon="list-timeline">
@@ -14,19 +14,29 @@ Nvisy records two independent trails:
   </Card>
 </CardGroup>
 
-## Run Audit
+## Detection Audit
 
-Every run produces an audit describing what detection found in one document:
+Every detection produces an audit describing what analysis found in one
+document:
 
 ```
-GET /workspaces/{workspaceSlug}/runs/{runId}/detections/
+GET /workspaces/{workspaceId}/detections/{detectionId}/analysis
 ```
 
 | Field | Description |
 |-------|-------------|
-| `body` | The main document body's entity group |
-| `parts` | One entry per container part, keyed by its part ID |
-| `context` | Recognition facts the entities were scored against |
+| `report` | The detections: `parts`, each tagged by modality, each holding entities |
+| `context` | What the caller asserted the entities were scored against |
+| `codec` | How the document decoded, so redaction decodes identically |
+| `recognition` | Custom labels this request introduced, and how they are matched |
+
+<Note>
+  Reviewer edits are not in the audit. They are the caller's own input, applied
+  to the report before redaction, so an audit carries what analysis found *as
+  amended* rather than the amendments themselves. A redaction's own review
+  audit is at
+  `/workspaces/{workspaceId}/redactions/{redactionId}/review`.
+</Note>
 
 ### Context
 
@@ -35,59 +45,80 @@ entity was recognized under are recorded alongside the finding:
 
 | Field | Description |
 |-------|-------------|
-| `languages` | Languages considered |
-| `countries` | Jurisdictions considered |
-| `ocrMode` | How pages were rendered for OCR |
-| `correlationId` | Correlates the run across services |
-| `metadata` | Additional recognition metadata |
+| `languages` | Languages the caller asserted the document is in |
+| `countries` | Jurisdictions the caller asserted apply |
+| `metadata` | Document tags, request purpose, and output audience |
+
+The `codec` records how the document was decoded — the entity offsets are
+stored against that decode, and a differently-rendered second one would not
+line up.
 
 ### Entity Provenance
 
-Each recognized entity carries an `audit` — a chain of events explaining how it
-reached its final state. Every event records a `kind`, `confidence`,
-`timestamp`, `source`, `parents`, and a `hash`.
+Each recognized entity carries an `audit` — a hash-linked DAG of events
+explaining how it reached its final state. Every event records a `kind`,
+`confidence`, `timestamp`, `source`, `parents`, and a `hash`.
 
 | Kind | Meaning |
 |------|---------|
-| `pattern` | Matched a deterministic pattern |
-| `model` | Recognized by a model |
-| `deduplication` | Merged with an overlapping detection |
-| `conflict` | Competing detections were reconciled |
-| `contested` | Recognizers disagreed |
-| `calibration` | Confidence was calibrated |
-| `refinement` | Boundaries or label were refined |
-| `redaction` | A redaction operator was applied |
+| `pattern` | A pattern or dictionary recognizer matched here |
+| `model` | A model or NER recognizer matched here |
+| `metadata` | A metadata field (EXIF tag, document property) was surfaced as a redaction subject |
+| `deduplication` | Several detections were fused into one entity |
+| `conflict` | A competing detection of a different label was resolved against this one |
+| `contested` | A competing detection was left unresolved; both survive, flagged for a human |
+| `calibration` | Confidence was rescaled by a per-recognizer factor |
+| `refinement` | A context keyword near the entity lifted its confidence |
+| `selection` | An operator was picked, recorded before it is applied so it can be reviewed |
+| `redaction` | An operator hid the entity |
+| `manual` | A human override: an entity a reviewer added, or one they marked to ignore |
 
-Because events carry `parents`, the trail is a graph rather than a flat list —
-you can trace a final entity back through every merge and reconciliation that
-produced it.
+Because events carry `parents`, the trail is a graph rather than a flat list.
+A birth event has no parents, a normal step has one, and a fusion has several —
+so you can trace a final entity back through every merge and reconciliation
+that produced it. An entity's effective `confidence` always equals that of its
+most recent event.
 
 <Note>
-  The `hash` on each event makes the chain verifiable: an audit can be checked
-  for tampering without reference to the original document content.
+  Each event's `hash` folds its payload together with its parents' hashes, so
+  any edit, reorder, insertion, or deletion of an earlier event breaks every
+  event downstream of it. Verification walks the DAG and reports the first
+  break.
 </Note>
 
-### Reviewer Overrides
+### Redaction Events
 
-Alongside each entity is an optional `review`, recording the reviewer's
-override and the policy authority it draws from. The policy reference is not
-only for the record — it selects which per-policy vault and key provider a
-reversible operator resolves against.
+A `redaction` event records which `operator` ran (by name and version), the
+`matched_by` rule that chose it, and the `attribution` the policy author
+attached — the authority the change answers to, either a freeform label or a
+formal citation. Where `matched_by` answers *which rule fired*, attribution
+answers *why the policy demanded it*.
 
-When `review` is absent, the matching policy rule applied unmodified.
+<Tip>
+  A redaction event may also carry a `span_hash` and `span_length`: a digest of
+  the original text the operator hid. That proves *what* was redacted without
+  storing the plaintext. A reversible operator records the `key_id` needed to
+  undo it.
+</Tip>
+
+A reviewer's decisions live on the same trail. A suppression is a `manual`
+event on the entity's audit, not a separate flag, so the record of a human
+override sits in the same tamper-evident chain as the machine's findings.
 
 ## Exporting
 
-Run audits export in two formats for archiving:
+Detection audits export in two formats for archiving:
 
 ```
-GET /workspaces/{workspaceSlug}/runs/{runId}/audit/json
-GET /workspaces/{workspaceSlug}/runs/{runId}/audit/csv
+GET /workspaces/{workspaceId}/detections/{detectionId}/audit
 ```
+
+`format` defaults to `csv` — a zip of `entities.csv`, `provenance.csv`, and
+`reviews.csv` — or pass `json` for a pretty-printed JSON file.
 
 ```typescript
-const response = await client.runs.downloadAuditCsv(workspaceSlug, runId);
-await writeFile("./audit.csv", Buffer.from(await response.arrayBuffer()));
+const response = await client.detections.downloadAudit(workspaceId, detectionId);
+await writeFile("./audit.zip", Buffer.from(await response.arrayBuffer()));
 ```
 
 <Tip>
@@ -98,38 +129,72 @@ await writeFile("./audit.csv", Buffer.from(await response.arrayBuffer()));
 
 ## Activity Log
 
-Separately from run audits, each workspace records the actions taken within it:
+Separately from detection audits, each workspace records the actions taken
+within it:
 
 ```
-GET /workspaces/{workspaceSlug}/activities/
+GET /workspaces/{workspaceId}/activities
+GET /workspaces/{workspaceId}/activities/export
 ```
 
 | Field | Description |
 |-------|-------------|
 | `id` | Activity identifier |
-| `workspaceSlug` | Workspace the action occurred in |
+| `workspaceId` | Workspace the action occurred in |
+| `workspaceHandle` | URL-safe workspace handle, display-only |
 | `performedBy` | Who performed it |
 | `createdAt` | When it occurred |
-| `payload` | Typed payload, tagged by activity type |
+| `payload` | Typed payload, tagged by `type` with its params under `data` |
 
-Payloads are typed per subject — files, pipelines, pipeline runs, policies,
-members, invites, connections, and webhooks each carry their own parameters.
+Activity types are namespaced by subject — `document.created`,
+`pipeline.detection.completed`, `pipeline.redaction.created`,
+`connection.sync.failed`, `provider.updated`, `review.verified`, and so on.
+Filter by `type` (repeat the parameter for several), by `actor`, and by a
+`from` / `to` date window.
+
+```typescript
+const page = await client.activities.listActivities(workspaceId, {
+  type: ["document.created", "pipeline.detection.failed"],
+  limit: 50,
+});
+```
 
 <Note>
   Activity payloads store identifiers and parameters, not rendered sentences.
-  The client localizes the description, so the log stays language-neutral and
-  stable as wording changes.
+  The client localizes the description from `type` and its params, so the log
+  stays language-neutral and stable as wording changes.
 </Note>
+
+## Review Trails
+
+A review adds a third, human-facing record: a named discussion on a document
+with its own timeline of comments interleaved with lifecycle events —
+`review.opened`, `review.renamed`, `detection.linked`, `redaction.linked`,
+`assigned`, `unassigned`, `verified`, and `reopened`.
+
+```
+GET /workspaces/{workspaceId}/reviews/{reviewId}/timeline
+GET /workspaces/{workspaceId}/reviews/{reviewId}/events
+```
+
+Its `reviewStatus` is derived from those events rather than set by hand, so
+the sign-off state and the trail that produced it cannot disagree.
 
 ## Retention
 
-Files record their role, which drives retention scope:
+Documents record their role, which drives retention scope:
 
 | Kind | Description |
 |------|-------------|
 | `original` | Source document, uploaded or imported |
-| `redacted` | Redacted output produced by a pipeline |
-| `audit` | Engine analysis blob, hidden from file lists |
+| `redacted` | Redacted output produced by a redaction |
+
+Machine byproducts — detection audits, review audits, and enrichment
+intermediates — are not documents; they are retained on their own scopes. A
+pipeline may override the workspace baseline per scope with `retention`,
+setting `auditLogs`, `intermediates`, or `redactedDocuments`. Original
+documents are ingested rather than produced by a pipeline, so they always
+follow the workspace baseline.
 
 For deployments where retention is governed internally, see
 [on-premise deployment](/deployment/on-premise/getting-started).
@@ -138,7 +203,7 @@ For deployments where retention is governed internally, see
 
 <CardGroup cols={2}>
   <Card title="Redaction Workflow" icon="workflow" href="/features/redaction-workflow">
-    Where the audit fits in the run lifecycle
+    Where the audit fits in the detection lifecycle
   </Card>
   <Card title="API Reference" icon="code" href="/api-reference/introduction">
     Audit and activity endpoints

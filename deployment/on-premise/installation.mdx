@@ -403,7 +403,7 @@ Key metrics:
 ### Health Checks
 
 ```bash
-curl http://localhost:8080/health/
+curl http://localhost:8080/health
 ```
 
 Response:
@@ -534,7 +534,7 @@ docker-compose pull
 docker-compose up -d
 
 # Verify upgrade
-curl http://localhost:8080/version
+curl http://localhost:8080/health/ready
 ```
 
 ### Kubernetes Upgrade

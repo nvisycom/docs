@@ -3,8 +3,9 @@ title: "Supported Formats"
 description: "File formats Nvisy can analyze and redact"
 ---
 
-Every file belongs to a **modality** — `text`, `tabular`, `image`, or `audio` —
-which determines how it is analyzed and which redaction operators apply.
+Every document belongs to a **modality** — `text`, `tabular`, `image`, `audio`,
+or `metadata` — which determines how it is analyzed and which redaction
+operators apply.
 
 ## Formats
 
@@ -46,58 +47,69 @@ which determines how it is analyzed and which redaction operators apply.
   `jpg` also matches `jpeg`, and `tif` also matches `tiff`.
 </Note>
 
+Embedded metadata is its own modality. An EXIF tag or a document property can
+be surfaced as a redaction subject in its own right — such a finding carries a
+`metadata` event on its audit trail — so a photo's GPS coordinates or a Word
+file's author are findings like any other.
+
 ## Container Formats
 
 Formats like `docx` and `xlsx` are containers: they hold parts that may have
 their own modality. An image embedded in a Word document is analyzed as an
 image, in its own right.
 
-The run's audit reflects this. Each container part appears in `parts`, keyed by
-its container-private ID — for a DOCX, that is the zip entry name:
+The detection's analysis reflects this. The audit's `report` carries a list of
+`parts`, each tagged by modality and identified by an `id` — a path of one or
+more segments naming where the part sits inside the document:
 
 ```json
 {
-  "body": { "modality": "text", "entities": [] },
-  "parts": {
-    "word/media/image1.png": { "modality": "image", "entities": [] }
+  "report": {
+    "parts": [
+      { "id": ["word/document.xml"], "modality": "text", "entities": [] },
+      { "id": ["word/media/image1.png"], "modality": "image", "entities": [] }
+    ]
   }
 }
 ```
 
-This is why a document can produce both text and image findings from a single
-run, each redacted with operators appropriate to its modality.
+For a DOCX, a part's `id` segment is its zip entry name.
+
+This is why one document can produce both text and image findings from a
+single detection, each redacted with operators appropriate to its modality.
 
 ## OCR
 
 Scanned documents have no selectable text layer and must be rendered to images
-before recognition. A run's scope controls this:
+before recognition. This is a codec setting, carried on the detection's audit
+as `codec.rasterMode`:
 
 ```json
 {
-  "scope": {
-    "ocrMode": { "kind": "force", "dpi": 300 }
+  "codec": {
+    "rasterMode": { "kind": "always", "dpi": 300 }
   }
 }
 ```
 
 | Mode | Behavior |
 |------|----------|
-| `auto` | Extract the text layer, render only pages that lack one |
-| `force` | Always render pages to images at the given `dpi` |
-| `never` | Never render; rely on the existing text layer |
+| `auto` | Use the text layer where it exists, render only pages that lack one. The default |
+| `always` | Always render pages to images at the given `dpi`, ignoring any text layer |
+| `never` | Never render; rely on the text layer only, even if it is absent |
 
-<Warning>
-  `auto` is the intended default, but the text-layer parser that drives the
-  decision is not in place yet — today only `force` actually renders. Use
-  `force` for scanned documents.
-</Warning>
+<Note>
+  `always` is for documents whose text layer is missing, garbled, or a
+  watermark. Under `auto`, the text-layer-versus-scanned decision defers to the
+  text path today; per-page rendering of scanned pages lands with OCR.
+</Note>
 
-## Filtering Files
+## Filtering Documents
 
-List endpoints filter by format, modality, or name:
+List endpoints filter by format, modality, name, or content hash:
 
 ```typescript
-const page = await client.files.listFiles(workspaceSlug, {
+const page = await client.documents.listDocuments(workspaceId, {
   formats: ["pdf", "docx"],
   modality: ["text"],
   search: "contract",
@@ -105,19 +117,27 @@ const page = await client.files.listFiles(workspaceSlug, {
 });
 ```
 
-## File Roles
+<Tip>
+  Every document carries the SHA-256 `hash` of its plaintext content, and
+  `hash` is a list filter. Query it before uploading to check whether identical
+  content already exists in the workspace.
+</Tip>
 
-Each file records the role it plays, which drives retention and whether it is
-user-facing:
+## Document Roles
+
+Each document records the role it plays, which drives retention:
 
 | Kind | Description |
 |------|-------------|
 | `original` | Source document, uploaded or imported |
-| `redacted` | Redacted output produced by a pipeline |
-| `audit` | Engine analysis blob; hidden from file lists |
+| `redacted` | Redacted output produced by a redaction |
 
-Redacted outputs are linked to their source through `parentId`, forming a
-version chain rather than overwriting the original.
+Machine byproducts — detection audits, review audits, and enrichment
+intermediates — are not documents. They are reached through their own
+endpoints and never appear in a document listing.
+
+A redacted output is reached from the redaction that produced it, through its
+`outputDocumentId`, so the original is never overwritten.
 
 ## Next Steps
 
@@ -126,6 +146,6 @@ version chain rather than overwriting the original.
     How modality drives redaction
   </Card>
   <Card title="API Reference" icon="code" href="/api-reference/introduction">
-    File endpoints and filters
+    Document endpoints and filters
   </Card>
 </CardGroup>

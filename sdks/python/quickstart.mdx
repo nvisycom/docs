@@ -4,10 +4,12 @@ description: "Install and get started with the Python SDK"
 ---
 
 <Warning>
-  The Python SDK is in early development. It currently provides a configured
-  HTTP client with authentication, retries, and error handling — typed service
-  methods are not yet available. For full API coverage today, use the
-  [TypeScript SDK](/sdks/typescript/quickstart).
+  The Python SDK is in early development and has not been updated for the
+  current API revision. It provides a configured HTTP client with
+  authentication, retries, and error handling — there are no typed service
+  methods, so every request is made by passing a raw path. Verify paths against
+  the [API Reference](/api-reference/introduction). For full, typed API
+  coverage today, use the [TypeScript SDK](/sdks/typescript/quickstart).
 </Warning>
 
 ## Installation
@@ -32,7 +34,7 @@ from nvisy import Client
 
 client = Client({"api_key": "your-api-token"})
 
-response = client.get_sync("/health/")
+response = client.get_sync("/health")
 print(response)
 ```
 

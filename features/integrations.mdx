@@ -1,98 +1,101 @@
 ---
 title: "Integrations"
-description: "Connect Nvisy to object storage and LLM providers"
+description: "Connect Nvisy to object storage, cloud file services, and LLM providers"
 ---
 
-Workspaces connect to external systems through **connections**. A connection
-holds a provider, its credentials, and — for storage providers — a sync
-schedule.
-
-There are two kinds:
+Workspaces reach external systems through two separate resources.
+**Connections** move documents in and out. **Providers** are the inference
+services the platform calls during detection. They are distinct resources with
+their own endpoints — an LLM is not a connection.
 
 <CardGroup cols={2}>
-  <Card title="Object Storage" icon="database">
-    `s3`, `azure`, `gcs` — sync files in and out of a workspace
+  <Card title="Connections" icon="database">
+    `object_store` and `file_service` — move documents in and out of a workspace
   </Card>
-  <Card title="LLM Inference" icon="microchip">
+  <Card title="Providers" icon="microchip">
     `openai`, `anthropic`, `ollama` — back AI-driven detection
   </Card>
 </CardGroup>
 
-## Creating a Connection
+## Connections
+
+A connection holds a provider, its credentials, and — for object stores — a
+sync schedule. Its `connectionType` is its capability category:
+
+| Type | Providers | How it transfers |
+|------|-----------|------------------|
+| `object_store` | `s3`, `azure`, `gcs` | Enumerable; syncs on a timer or on demand |
+| `file_service` | `google_drive`, `dropbox`, `one_drive`, `box` | OAuth-backed; transfers on demand |
+
+### Creating an Object-Store Connection
 
 ```
-POST /workspaces/{workspaceSlug}/connections/
+POST /workspaces/{workspaceId}/connections
 ```
 
 The body carries a `displayName`, a typed `config`, and optionally `isActive`
-and a `sync` schedule. The provider is inferred from the config.
+and a `sync` schedule. The `provider` tag inside the config selects the
+variant, and thereby which credential shape is required.
 
-<CodeGroup>
-
-```typescript S3
-const connection = await client.connections.createConnection(workspaceSlug, {
+```typescript
+const connection = await client.connections.createConnection(workspaceId, {
   displayName: "Archive bucket",
   config: {
     provider: "s3",
-    credentials: { /* provider credentials */ },
+    credentials: { /* S3 credentials */ },
     rootPath: "contracts/",
   },
 });
 ```
 
-```typescript Anthropic
-const connection = await client.connections.createConnection(workspaceSlug, {
-  displayName: "Detection model",
-  config: {
-    provider: "anthropic",
-    credentials: { /* api key */ },
-    defaultModel: "claude-sonnet-5",
-  },
-});
-```
-
-```typescript Ollama
-const connection = await client.connections.createConnection(workspaceSlug, {
-  displayName: "Local inference",
-  config: {
-    provider: "ollama",
-    baseUrl: "http://127.0.0.1:11434",
-    defaultModel: "llama3",
-  },
-});
-```
-
-</CodeGroup>
-
-<Note>
-  `ollama` requires `baseUrl` rather than credentials — it is the self-hosted
-  option, so there is no key to supply. `openai` and `anthropic` accept an
-  optional `baseUrl` for gateways and compatible endpoints.
-</Note>
-
-## Storage Configuration
-
 | Field | Required | Description |
 |-------|----------|-------------|
 | `provider` | Yes | `s3`, `azure`, or `gcs` |
-| `credentials` | Yes | Provider credentials |
-| `rootPath` | No | Prefix to scope the connection to a subtree |
+| `credentials` | Yes | Provider credentials; the shape follows the `provider` tag |
+| `rootPath` | No | Prefix within the bucket or container; keys resolve relative to it |
 
-## LLM Configuration
+<Note>
+  Credentials are encrypted at rest and never returned in API responses. A
+  connection response carries only metadata — `provider`, `connectionType`,
+  `isActive`, `lastSyncedAt`, and the `sync` schedule when one is configured.
+</Note>
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `provider` | Yes | `openai`, `anthropic`, or `ollama` |
-| `credentials` | Yes, except `ollama` | Provider API key |
-| `baseUrl` | Required for `ollama` | Endpoint URL |
-| `defaultModel` | No | Model used when none is specified |
+### Connecting a Cloud File Service
+
+File services are OAuth-backed, so there are no credentials to supply. Start
+the flow, send the user to the returned `authorizeUrl`, and the connection is
+created when the provider redirects back:
+
+```
+POST /workspaces/{workspaceId}/connections/oauth/{provider}/start
+```
+
+```typescript
+const { authorizeUrl } = await client.connections.startFileServiceOAuth(
+  workspaceId,
+  "google_drive",
+  { displayName: "Team Drive" },
+);
+```
+
+<Warning>
+  Navigate the browser to `authorizeUrl` as a full-page redirect, not a
+  `fetch` — the provider's consent screen cannot be loaded cross-origin.
+</Warning>
+
+An OAuth provider is offered only when its app is configured on the server.
+Ask the deployment which connectors it can create rather than probing:
+
+```typescript
+const connectors = await client.capabilities.listConnectors();
+```
 
 ## Verifying a Connection
 
 Check reachability before relying on a connection:
 
 ```
-POST /workspaces/{workspaceSlug}/connections/{connectionId}/verify/
+POST /workspaces/{workspaceId}/connections/{connectionId}/verify
 ```
 
 The response contains `reachable` and, on failure, an `error`.
@@ -102,26 +105,29 @@ The response contains `reachable` and, on failure, an `error`.
   will surface as failed syncs rather than an obvious error.
 </Tip>
 
-## Syncing Files
+## Syncing Documents
 
-Storage connections can sync on a schedule or on demand.
+How a connection transfers depends on its type.
+
+### Object Stores
+
+An object store is enumerable, so it syncs the whole listing — on a schedule or
+on demand:
 
 ```
-POST /workspaces/{workspaceSlug}/connections/{connectionId}/sync/
-GET  /workspaces/{workspaceSlug}/connections/{connectionId}/syncs/
-GET  /workspaces/{workspaceSlug}/syncs/
+POST /workspaces/{workspaceId}/connections/{connectionId}/sync
+GET  /workspaces/{workspaceId}/connections/{connectionId}/syncs
+GET  /workspaces/{workspaceId}/syncs
 ```
-
-### Schedule
 
 | Field | Description |
 |-------|-------------|
-| `syncMode` | `import` pulls into the workspace; `export` pushes out |
-| `scheduleCron` | Cron expression for automatic runs |
-| `deletionPolicy` | `ignore` or `delete` when a remote object disappears |
+| `syncMode` | Required. `import` pulls into the workspace; `export` pushes out |
+| `scheduleCron` | Cron expression for scheduled imports; omit for manual-only |
+| `deletionPolicy` | `ignore` (default) or `delete` when a source object disappears |
 
 ```typescript
-await client.connections.updateConnection(workspaceSlug, connectionId, {
+await client.connections.updateConnection(workspaceId, connectionId, {
   sync: {
     syncMode: "import",
     scheduleCron: "0 * * * *",
@@ -131,14 +137,49 @@ await client.connections.updateConnection(workspaceSlug, connectionId, {
 ```
 
 <Warning>
-  `deletionPolicy: "delete"` removes workspace files when their remote
-  counterpart is gone. Use `ignore` unless the remote is authoritative.
+  `deletionPolicy: "delete"` soft-deletes the imported document and removes its
+  stored object when the source object is gone. The default `ignore` keeps
+  imports strictly additive, so a transient listing error or a misconfigured
+  `rootPath` can never remove documents.
 </Warning>
+
+<Note>
+  A `sync` schedule is accepted only for schedulable providers — object stores.
+  It is rejected for a file service, which transfers on demand.
+</Note>
+
+### File Services
+
+A file service is not enumerated on a timer. Import is picker-driven: the user
+picks files in the provider's own picker, and you pass the selection through.
+Export writes each redacted output as a new provider file, never overwriting
+the source.
+
+```
+POST /workspaces/{workspaceId}/connections/{connectionId}/import
+POST /workspaces/{workspaceId}/connections/{connectionId}/export
+POST /workspaces/{workspaceId}/connections/{connectionId}/picker-token
+```
+
+```typescript
+const sync = await client.connections.importFiles(workspaceId, connectionId, {
+  files: [{ id: "<provider file id>", name: "contract.pdf" }],
+});
+
+await client.connections.exportFiles(workspaceId, connectionId, {
+  fileIds: [outputDocumentId],
+});
+```
+
+Already-imported files are skipped; an export always writes a fresh copy. Both
+return the created sync — poll it for completion. For a browser picker
+that needs a provider token, `getPickerToken` mints a short-lived one from the
+connection's stored credentials; the refresh token is never returned.
 
 ### Sync Status
 
-A sync record reports `status`, `triggerType`, `recordsSynced`, `attempt`, and
-`errorMessage` on failure.
+A sync record reports `status`, `triggerType`, `recordsSynced`, `attempt`,
+`startedAt`, and `errorMessage` on failure.
 
 | Status | Meaning |
 |--------|---------|
@@ -148,47 +189,120 @@ A sync record reports `status`, `triggerType`, `recordsSynced`, `attempt`, and
 | `failed` | Failed — see `errorMessage` |
 | `cancelled` | Cancelled by a user |
 
-Triggers are `manual`, `scheduled`, or `webhook`. Cancel a running sync with:
+`triggerType` is `scheduled` when the connection's own schedule started it, or
+`on_demand` for everything else — a user, the SDK, or an external automation.
+Cancel a running sync with:
 
 ```
-POST /workspaces/{workspaceSlug}/connections/{connectionId}/syncs/{syncId}/cancel/
+POST /workspaces/{workspaceId}/connections/{connectionId}/syncs/{syncId}/cancel
 ```
+
+## Providers
+
+Inference providers are a separate resource. A provider is an LLM or NER
+service the platform calls; its `providerType` is `llm` or `ner`.
+
+```
+GET    /workspaces/{workspaceId}/providers
+POST   /workspaces/{workspaceId}/providers
+PATCH  /workspaces/{workspaceId}/providers/{providerId}
+DELETE /workspaces/{workspaceId}/providers/{providerId}
+POST   /workspaces/{workspaceId}/providers/{providerId}/verify
+```
+
+<CodeGroup>
+
+```typescript Anthropic
+const provider = await client.providers.createProvider(workspaceId, {
+  displayName: "Detection model",
+  config: {
+    provider: "anthropic",
+    apiKey: "...",
+    defaultModel: "claude-sonnet-4-5",
+  },
+});
+```
+
+```typescript OpenAI
+const provider = await client.providers.createProvider(workspaceId, {
+  displayName: "Detection model",
+  config: {
+    provider: "openai",
+    apiKey: "...",
+    baseUrl: "https://gateway.example.com/v1",
+  },
+});
+```
+
+```typescript Ollama
+const provider = await client.providers.createProvider(workspaceId, {
+  displayName: "Local inference",
+  config: {
+    provider: "ollama",
+    baseUrl: "http://localhost:11434",
+    defaultModel: "llama3",
+  },
+});
+```
+
+</CodeGroup>
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `provider` | Yes | `openai`, `anthropic`, or `ollama` |
+| `apiKey` | Yes, except `ollama` | Provider API key |
+| `baseUrl` | Required for `ollama` | Base URL of the server; optional elsewhere to reach a compatible endpoint or proxy |
+| `defaultModel` | No | Model used when a request does not specify one |
+
+<Note>
+  `ollama` carries no secret — it is addressed by a caller-supplied `baseUrl`,
+  which is the self-hosted option. `openai` and `anthropic` accept an optional
+  `baseUrl` for gateways and compatible endpoints.
+</Note>
+
+Like connections, a provider's config is encrypted at rest and never returned.
+Verify reachability the same way, with `verifyProvider`.
 
 ## Webhooks
 
-Register endpoints to receive events as runs and syncs progress:
+Register endpoints to receive events as documents, detections, reviews, and
+syncs progress:
 
 ```
-GET    /workspaces/{workspaceSlug}/webhooks/
-POST   /workspaces/{workspaceSlug}/webhooks/
-POST   /workspaces/{workspaceSlug}/webhooks/{webhookId}/test/
-DELETE /workspaces/{workspaceSlug}/webhooks/{webhookId}/
+GET    /workspaces/{workspaceId}/webhooks
+POST   /workspaces/{workspaceId}/webhooks
+POST   /workspaces/{workspaceId}/webhooks/{webhookId}/test
+DELETE /workspaces/{workspaceId}/webhooks/{webhookId}
 ```
 
-Use the `test` endpoint to confirm delivery before depending on it.
+A webhook names the `events` it should receive — among them
+`document.created`, `connection.sync.completed`, `connection.sync.failed`,
+`provider.updated`, `review.opened`, and `review.verified`. Creating one
+returns its signing secret once; use the `test` endpoint to confirm delivery
+before depending on it.
 
 ## Managing Connections
 
 ```
-GET    /workspaces/{workspaceSlug}/connections/
-GET    /workspaces/{workspaceSlug}/connections/{connectionId}/
-PATCH  /workspaces/{workspaceSlug}/connections/{connectionId}/
-DELETE /workspaces/{workspaceSlug}/connections/{connectionId}/
+GET    /workspaces/{workspaceId}/connections
+GET    /workspaces/{workspaceId}/connections/{connectionId}
+PATCH  /workspaces/{workspaceId}/connections/{connectionId}
+DELETE /workspaces/{workspaceId}/connections/{connectionId}
 ```
 
-List endpoints accept a `provider` filter, and workspace-wide syncs also accept
-`status`.
+Connection and provider lists accept a `provider` filter, and workspace-wide
+syncs also accept `status`.
 
-Set `isActive: false` to pause a connection without deleting it — scheduled
-syncs stop, and the configuration is retained.
+Set `isActive: false` to pause a connection or a provider without deleting it —
+scheduled syncs stop, and the configuration is retained.
 
 ## Next Steps
 
 <CardGroup cols={2}>
   <Card title="API Reference" icon="code" href="/api-reference/introduction">
-    Connection and sync endpoints
+    Connection, provider, and sync endpoints
   </Card>
   <Card title="TypeScript SDK" icon="js" href="/sdks/typescript/api-reference">
-    `connections`, `syncs`, and `webhooks`
+    `connections`, `providers`, `syncs`, and `webhooks`
   </Card>
 </CardGroup>
