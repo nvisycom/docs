@@ -7,7 +7,7 @@
     "light": "#3B82F6",
     "dark": "#1E40AF"
   },
-  "favicon": "/images/nvisy.png",
+  "favicon": "/favicon.svg",
   "navigation": {
     "tabs": [
       {
@@ -96,8 +96,8 @@
     }
   },
   "logo": {
-    "light": "/images/nvisy.png",
-    "dark": "/images/nvisy.png"
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
   },
   "navbar": {
     "links": [
