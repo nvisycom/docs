@@ -11,8 +11,8 @@
             "email": "hello@nvisy.com"
         },
         "license": {
-            "name": "Proprietary",
-            "url": "https://nvisy.com/license"
+            "name": "Apache-2.0",
+            "url": "https://www.apache.org/licenses/LICENSE-2.0"
         },
         "version": "0.1.0"
     },
